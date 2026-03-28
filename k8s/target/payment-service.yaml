@@ -1,0 +1,91 @@
+---
+# Payment Service Deployment with Nerve-Ending Sidecar
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service
+  namespace: darwin-target
+  labels:
+    app: payment-service
+    darwin-monitored: "true"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: payment-service
+  template:
+    metadata:
+      labels:
+        app: payment-service
+        darwin-monitored: "true"
+    spec:
+      containers:
+      # Container 1: Payment Service Application
+      - name: payment-service
+        image: darwin/payment-service:v1.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: http
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+
+      # Container 2: Nerve-Ending Sidecar (Telemetry Collector)
+      - name: nerve-ending
+        image: darwin/nerve-ending:v1.0
+        imagePullPolicy: IfNotPresent
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        env:
+        - name: MONITORED_SERVICE
+          value: "payment-service"
+        - name: NATS_URL
+          value: "nats://nats.darwin-infra:4222"
+        - name: APP_METRICS_URL
+          value: "http://localhost:9090/metrics"
+        - name: COLLECTION_INTERVAL_SECONDS
+          value: "2"
+        - name: RETRY_ATTEMPTS
+          value: "5"
+        - name: RETRY_DELAY_SECONDS
+          value: "2"
+
+---
+# Payment Service Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-service
+  namespace: darwin-target
+  labels:
+    app: payment-service
+spec:
+  type: ClusterIP
+  selector:
+    app: payment-service
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080

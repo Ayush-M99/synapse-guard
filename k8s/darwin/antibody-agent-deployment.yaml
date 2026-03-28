@@ -1,0 +1,151 @@
+"""
+Kubernetes Deployment for Antibody Agent
+"""
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: antibody-agent-sa
+  namespace: darwin
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: antibody-agent-role
+rules:
+  # Read pods
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  # Delete pods (pod restart)
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["delete", "create"]
+  # Scale deployments
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/scale"]
+    verbs: ["get", "list", "patch", "update"]
+  # Apply network policies
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "create", "list", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: antibody-agent-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: antibody-agent-role
+subjects:
+  - kind: ServiceAccount
+    name: antibody-agent-sa
+    namespace: darwin
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: antibody-agent
+  namespace: darwin
+  labels:
+    app: antibody-agent
+spec:
+  selector:
+    app: antibody-agent
+  ports:
+    - port: 8080
+      name: http
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: antibody-agent
+  namespace: darwin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: antibody-agent
+  template:
+    metadata:
+      labels:
+        app: antibody-agent
+    spec:
+      serviceAccountName: antibody-agent-sa
+      containers:
+        - name: antibody-agent
+          image: darwin/antibody-agent:v1.0
+          imagePullPolicy: Never  # Use local Minikube image
+          ports:
+            - containerPort: 8080
+          env:
+            # NATS Configuration
+            - name: NATS_URL
+              value: "nats://nats.darwin-infra:4222"
+
+            # Redis Configuration
+            - name: REDIS_HOST
+              value: "redis.darwin-infra"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_PASSWORD
+              value: "darwin123"
+
+            # Neo4j Configuration
+            - name: NEO4J_URI
+              value: "bolt://neo4j.darwin-infra:7687"
+            - name: NEO4J_USER
+              value: "neo4j"
+            - name: NEO4J_PASSWORD
+              value: "darwin123"
+
+            # PostgreSQL Configuration
+            - name: POSTGRES_HOST
+              value: "postgres.darwin-infra"
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_DATABASE
+              value: "darwin_dna"
+            - name: POSTGRES_USER
+              value: "darwin"
+            - name: POSTGRES_PASSWORD
+              value: "darwin123"
+
+            # Kubernetes Configuration
+            - name: K8S_NAMESPACE
+              value: "darwin-target"
+            - name: IN_CLUSTER
+              value: "true"
+
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+
+          # Health checks
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          # Graceful shutdown
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]
