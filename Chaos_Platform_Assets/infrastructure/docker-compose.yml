@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: chaos-postgres
+    environment:
+      POSTGRES_DB: chaos_dna
+      POSTGRES_USER: chaos
+      POSTGRES_PASSWORD: chaospassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chaos"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: chaos-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  neo4j:
+    image: neo4j:5.11.0
+    container_name: chaos-neo4j
+    environment:
+      NEO4J_AUTH: neo4j/chaospassword
+    ports:
+      - "7474:7474" # HTTP
+      - "7687:7687" # Bolt
+    volumes:
+      - neo4jdata:/data
+    healthcheck:
+        test: ["CMD", "wget", "http://localhost:7474"]
+        interval: 10s
+        timeout: 10s
+        retries: 10
+
+  nats:
+    image: nats:2.9-alpine
+    container_name: chaos-nats
+    ports:
+      - "4222:4222" # Client
+      - "8222:8222" # HTTP management
+    command: "-m 8222"
+
+volumes:
+  pgdata:
+  neo4jdata:

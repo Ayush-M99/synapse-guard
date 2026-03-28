@@ -1,0 +1,290 @@
+---
+# DARWIN WS Bridge Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ws-bridge
+  namespace: darwin
+  labels:
+    app: ws-bridge
+    tier: darwin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ws-bridge
+  template:
+    metadata:
+      labels:
+        app: ws-bridge
+    spec:
+      containers:
+        - name: ws-bridge
+          image: darwin-ws-bridge:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            - name: NATS_URL
+              value: nats://nats.darwin:4222
+            - name: PG_URL
+              value: postgres://chaos:chaospassword@postgres.darwin:5432/chaos_dna
+            - name: NEO4J_URI
+              value: bolt://neo4j.darwin:7687
+            - name: NEO4J_USER
+              value: neo4j
+            - name: NEO4J_PASS
+              value: chaospassword
+          command: ["uvicorn", "ws_bridge.main:app", "--host", "0.0.0.0", "--port", "8000"]
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "300m"
+              memory: "256Mi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ws-bridge
+  namespace: darwin
+spec:
+  selector:
+    app: ws-bridge
+  ports:
+    - port: 8000
+      targetPort: 8000
+      nodePort: 30800
+  type: NodePort
+---
+# DARWIN ML Pipeline Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ml-pipeline
+  namespace: darwin
+  labels:
+    app: ml-pipeline
+    tier: darwin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ml-pipeline
+  template:
+    metadata:
+      labels:
+        app: ml-pipeline
+    spec:
+      containers:
+        - name: ml-pipeline
+          image: darwin-ml-pipeline:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8001
+          env:
+            - name: PROMETHEUS_URL
+              value: http://prometheus.darwin:9090
+            - name: NATS_URL
+              value: nats://nats.darwin:4222
+            - name: SCRAPE_INTERVAL
+              value: "5"
+            - name: IF_THRESHOLD
+              value: "0.65"
+            - name: IF_SUSTAIN_COUNT
+              value: "3"
+          command: ["python", "-m", "ml_pipeline.pipeline"]
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ml-pipeline
+  namespace: darwin
+spec:
+  selector:
+    app: ml-pipeline
+  ports:
+    - port: 8001
+      targetPort: 8001
+---
+# DARWIN Virus Agent Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: virus-agent
+  namespace: darwin
+  labels:
+    app: virus-agent
+    tier: darwin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: virus-agent
+  template:
+    metadata:
+      labels:
+        app: virus-agent
+    spec:
+      serviceAccountName: darwin-chaos-sa
+      containers:
+        - name: virus-agent
+          image: darwin-virus-agent:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NATS_URL
+              value: nats://nats.darwin:4222
+            - name: PG_URL
+              value: postgres://chaos:chaospassword@postgres.darwin:5432/chaos_dna
+            - name: PATIENT_NAMESPACE
+              value: patient
+          command: ["python", "-m", "virus_agent.generation_controller"]
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "300m"
+              memory: "256Mi"
+---
+# DARWIN Antibody Agent Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: antibody-agent
+  namespace: darwin
+  labels:
+    app: antibody-agent
+    tier: darwin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: antibody-agent
+  template:
+    metadata:
+      labels:
+        app: antibody-agent
+    spec:
+      serviceAccountName: darwin-chaos-sa
+      containers:
+        - name: antibody-agent
+          image: darwin-antibody:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NATS_URL
+              value: nats://nats.darwin:4222
+            - name: PG_URL
+              value: postgres://chaos:chaospassword@postgres.darwin:5432/chaos_dna
+            - name: REDIS_URL
+              value: redis://redis.darwin:6379
+            - name: NEO4J_URI
+              value: bolt://neo4j.darwin:7687
+            - name: NEO4J_USER
+              value: neo4j
+            - name: NEO4J_PASS
+              value: chaospassword
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: darwin-secrets
+                  key: GEMINI_API_KEY
+                  optional: true
+          command: ["python", "-m", "antibody.main"]
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+# Nerve Endings — DaemonSet on each patient node
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nerve-endings
+  namespace: darwin
+  labels:
+    app: nerve-endings
+    tier: darwin
+spec:
+  selector:
+    matchLabels:
+      app: nerve-endings
+  template:
+    metadata:
+      labels:
+        app: nerve-endings
+    spec:
+      containers:
+        - name: nerve-endings
+          image: darwin-nerve-endings:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NATS_URL
+              value: nats://nats.darwin:4222
+            - name: PROMETHEUS_URL
+              value: http://prometheus.darwin:9090
+            - name: PATIENT_NAMESPACE
+              value: patient
+          command: ["python", "-m", "nerve_endings.sidecar"]
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
+---
+# ServiceAccount + ClusterRoleBinding for chaos operations
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: darwin-chaos-sa
+  namespace: darwin
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: darwin-chaos-role
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/exec", "configmaps", "services", "endpoints"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "daemonsets"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["networking.istio.io"]
+    resources: ["virtualservices", "destinationrules"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: darwin-chaos-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: darwin-chaos-role
+subjects:
+  - kind: ServiceAccount
+    name: darwin-chaos-sa
+    namespace: darwin

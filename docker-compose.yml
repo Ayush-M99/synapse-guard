@@ -1,0 +1,159 @@
+version: '3.8'
+
+# DARWIN Platform — Full Infrastructure Stack
+# Credentials: PostgreSQL chaos/chaospassword, Neo4j neo4j/chaospassword
+# Prometheus: http://localhost:9090
+# Loki: http://localhost:3100
+# Grafana: http://localhost:3000 (admin/admin)
+# Jaeger: http://localhost:16686
+
+services:
+  # ─────────────────────────────────────────
+  # DNA Store — Evolutionary history
+  # ─────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: darwin-postgres
+    environment:
+      POSTGRES_DB: chaos_dna
+      POSTGRES_USER: chaos
+      POSTGRES_PASSWORD: chaospassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chaos"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────
+  # T-Cell Memory — Immunity cache
+  # ─────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: darwin-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────
+  # Brain — Knowledge graph
+  # ─────────────────────────────────────────
+  neo4j:
+    image: neo4j:5.11.0
+    container_name: darwin-neo4j
+    environment:
+      NEO4J_AUTH: neo4j/chaospassword
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_security_procedures_unrestricted: apoc.*
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4jdata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -O /dev/null -q http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────
+  # Neural Bus — Event messaging
+  # ─────────────────────────────────────────
+  nats:
+    image: nats:2.10-alpine
+    container_name: darwin-nats
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    command: "-m 8222 --jetstream"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -O /dev/null -q http://localhost:8222/healthz || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────
+  # Metrics — Prometheus scraper
+  # ─────────────────────────────────────────
+  prometheus:
+    image: quay.io/prometheus/prometheus:v2.51.0
+    container_name: darwin-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+      - "--web.enable-lifecycle"
+      - "--web.enable-admin-api"
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────
+  # Log aggregation — Loki
+  # ─────────────────────────────────────────
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: darwin-loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./observability/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - lokidata:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────
+  # Dashboards — Grafana
+  # ─────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: darwin-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafanadata:/var/lib/grafana
+      - ./observability/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    depends_on:
+      - prometheus
+      - loki
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────
+  # Distributed Tracing — Jaeger
+  # ─────────────────────────────────────────
+  jaeger:
+    image: jaegertracing/all-in-one:1.51
+    container_name: darwin-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"   # UI
+      - "4317:4317"     # OTLP gRPC
+      - "4318:4318"     # OTLP HTTP
+      - "14268:14268"   # jaeger HTTP thrift
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  neo4jdata:
+  promdata:
+  lokidata:
+  grafanadata:

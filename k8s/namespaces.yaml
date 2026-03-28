@@ -1,0 +1,16 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: darwin
+  labels:
+    name: darwin
+    platform: darwin
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: patient
+  labels:
+    name: patient
+    platform: darwin

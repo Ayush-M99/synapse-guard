@@ -1,0 +1,100 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: neo4j-config
+  namespace: darwin-infra
+data:
+  NEO4J_AUTH: "neo4j/darwinpassword"
+  NEO4J_apoc_export_file_enabled: "true"
+  NEO4J_apoc_import_file_enabled: "true"
+  NEO4J_apoc_allow_virtual_allocationsize_unlimited: "true"
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: neo4j
+  namespace: darwin-infra
+spec:
+  serviceName: "neo4j"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: neo4j
+  template:
+    metadata:
+      labels:
+        app: neo4j
+    spec:
+      containers:
+      - name: neo4j
+        image: neo4j:5.13
+        ports:
+        - containerPort: 7687
+          name: bolt
+        - containerPort: 7474
+          name: http
+        - containerPort: 7473
+          name: https
+        resources:
+          requests:
+            cpu: 1000m
+            memory: 2Gi
+          limits:
+            cpu: 2000m
+            memory: 4Gi
+        envFrom:
+        - configMapRef:
+            name: neo4j-config
+        volumeMounts:
+        - name: neo4j-storage
+          mountPath: /var/lib/neo4j/data
+        - name: neo4j-logs
+          mountPath: /var/lib/neo4j/logs
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 7474
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 7474
+          initialDelaySeconds: 20
+          periodSeconds: 5
+  volumeClaimTemplates:
+  - metadata:
+      name: neo4j-storage
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 10Gi
+  - metadata:
+      name: neo4j-logs
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 2Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: neo4j
+  namespace: darwin-infra
+  labels:
+    app: neo4j
+spec:
+  clusterIP: None
+  selector:
+    app: neo4j
+  ports:
+  - port: 7687
+    name: bolt
+  - port: 7474
+    name: http
+  - port: 7473
+    name: https
