@@ -1,354 +1,159 @@
 """
-Payment Service - DARWIN Target Application
-Simple FastAPI microservice for testing chaos engineering
+payment-service — Payment processing
+FastAPI / PostgreSQL (asyncpg)
+Exposes: /health /metrics /pay /status/{id}
 """
-
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import Response
-import time
-import logging
-from datetime import datetime
-from prometheus_client import Counter, Histogram, Gauge, generate_latest
-from contextlib import asynccontextmanager
 import asyncio
+import hashlib
+import logging
+import os
+import random
+import time
+import uuid
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# ============================================================================
-# PROMETHEUS METRICS - 7-Feature Vector
-# ============================================================================
-
-# Counter: Total HTTP requests
-http_requests_total = Counter(
-    'http_requests_total',
-    'Total HTTP requests',
-    ['method', 'endpoint', 'status']
+import asyncpg
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import Response
+from prometheus_client import (
+    Counter, Histogram, Gauge, generate_latest,
+    CONTENT_TYPE_LATEST, CollectorRegistry
 )
+from pydantic import BaseModel
 
-# Histogram: Request duration
-http_request_duration_seconds = Histogram(
-    'http_request_duration_seconds',
-    'HTTP request duration in seconds',
-    ['method', 'endpoint']
-)
+SERVICE_NAME = os.getenv("SERVICE_NAME", "payment-service")
+DB_URL       = os.getenv("DATABASE_URL", "postgresql://chaos:chaospassword@localhost:5432/chaos_dna")
+PORT         = int(os.getenv("PORT", "8013"))
 
-# Gauge: Current error rate (%)
-http_error_rate = Gauge(
-    'http_error_rate',
-    'Current HTTP error rate (percentage)',
-)
+logging.basicConfig(level=logging.INFO, format=f"[{SERVICE_NAME}] %(message)s")
+log = logging.getLogger(__name__)
 
-# Gauge: P99 latency
-http_latency_p99_ms = Gauge(
-    'http_latency_p99_ms',
-    'P99 HTTP latency in milliseconds',
-)
+_reg = CollectorRegistry()
+req_total   = Counter("http_requests_total", "Total requests",
+                       ["method", "endpoint", "status"], registry=_reg)
+req_latency = Histogram("http_request_duration_seconds", "Latency",
+                         ["endpoint"], registry=_reg)
+pay_total   = Counter("payments_total", "Payments processed",
+                       ["status"], registry=_reg)
+active_reqs = Gauge("active_requests", "Active requests", registry=_reg)
+cpu_sim     = Gauge("simulated_cpu_pct", "Simulated CPU %", registry=_reg)
+mem_sim     = Gauge("simulated_mem_mb", "Simulated mem MB", registry=_reg)
 
-# Gauge: Pod restart count (simulated)
-pod_restart_count = Gauge(
-    'pod_restart_count',
-    'Pod restart count',
-)
+app  = FastAPI(title=SERVICE_NAME)
+_pool: asyncpg.Pool = None
 
-# Gauge: Network RX bytes
-network_rx_bytes = Gauge(
-    'network_rx_bytes',
-    'Network received bytes',
-)
-
-# Gauge: Network TX bytes
-network_tx_bytes = Gauge(
-    'network_tx_bytes',
-    'Network transmitted bytes',
-)
-
-# ============================================================================
-# SERVICE STATE
-# ============================================================================
-
-service_state = {
-    "name": "payment-service",
-    "version": "1.0.0",
-    "status": "healthy",
-    "start_time": datetime.utcnow(),
-    "request_count": 0,
-    "error_count": 0,
-    "latencies": [],  # Last 100 request latencies
-    "max_latencies": 100,
-}
-
-# ============================================================================
-# LIFECYCLE EVENTS
-# ============================================================================
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Startup and shutdown events"""
-    logger.info("🚀 Payment Service starting up...")
-    service_state["start_time"] = datetime.utcnow()
-
-    # Initialize metrics
-    pod_restart_count.set(0)
-    network_rx_bytes.set(0)
-    network_tx_bytes.set(0)
-    http_error_rate.set(0)
-    http_latency_p99_ms.set(0)
-
-    yield
-
-    logger.info("🛑 Payment Service shutting down...")
-
-# ============================================================================
-# CREATE FASTAPI APP
-# ============================================================================
-
-app = FastAPI(
-    title="DARWIN Payment Service",
-    description="Target microservice for chaos engineering testing",
-    version="1.0.0",
-    lifespan=lifespan
-)
-
-# ============================================================================
-# MIDDLEWARE - Request timing and metrics
-# ============================================================================
-
-@app.middleware("http")
-async def track_metrics(request: Request, call_next):
-    """Track request metrics"""
-    start_time = time.time()
-
+@app.on_event("startup")
+async def startup():
+    global _pool
     try:
-        response = await call_next(request)
-
-        # Calculate latency
-        latency = time.time() - start_time
-
-        # Record metrics
-        service_state["request_count"] += 1
-        http_requests_total.labels(
-            method=request.method,
-            endpoint=request.url.path,
-            status=response.status_code
-        ).inc()
-
-        http_request_duration_seconds.labels(
-            method=request.method,
-            endpoint=request.url.path
-        ).observe(latency)
-
-        # Track latencies for P99 calculation
-        service_state["latencies"].append(latency * 1000)  # Convert to ms
-        if len(service_state["latencies"]) > service_state["max_latencies"]:
-            service_state["latencies"].pop(0)
-
-        # Update error rate
-        if response.status_code >= 400:
-            service_state["error_count"] += 1
-
-        error_rate = (service_state["error_count"] / max(service_state["request_count"], 1)) * 100
-        http_error_rate.set(error_rate)
-
-        # Update P99 latency
-        if service_state["latencies"]:
-            sorted_latencies = sorted(service_state["latencies"])
-            p99_index = int(len(sorted_latencies) * 0.99)
-            http_latency_p99_ms.set(sorted_latencies[p99_index])
-
-        return response
-
+        _pool = await asyncpg.create_pool(DB_URL, min_size=2, max_size=10)
+        async with _pool.acquire() as conn:
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS payments (
+                    id        VARCHAR(36) PRIMARY KEY,
+                    order_id  VARCHAR(36),
+                    amount    FLOAT,
+                    status    VARCHAR(20) DEFAULT 'pending',
+                    created   TIMESTAMP DEFAULT NOW()
+                )
+            """)
+        log.info("DB pool ready")
     except Exception as e:
-        logger.error(f"Request failed: {str(e)}")
-        service_state["error_count"] += 1
-        raise
+        log.warning(f"DB unavailable: {e}")
+    asyncio.create_task(_metrics_simulator())
 
-# ============================================================================
-# HEALTH ENDPOINT
-# ============================================================================
+@app.on_event("shutdown")
+async def shutdown():
+    if _pool:
+        await _pool.close()
+
+class PaymentRequest(BaseModel):
+    order_id: str
+    amount: float
+    currency: str = "USD"
 
 @app.get("/health")
-def health():
-    """
-    Health check endpoint
-    Returns: JSON with service status
-    """
-    uptime = (datetime.utcnow() - service_state["start_time"]).total_seconds()
-
-    return {
-        "status": service_state["status"],
-        "service": service_state["name"],
-        "version": service_state["version"],
-        "uptime_seconds": uptime,
-        "timestamp": datetime.utcnow().isoformat(),
-    }
-
-# ============================================================================
-# METRICS ENDPOINT
-# ============================================================================
+async def health():
+    return {"status": "ok", "service": SERVICE_NAME, "ts": time.time()}
 
 @app.get("/metrics")
-def metrics():
-    """
-    Prometheus metrics endpoint
-    Returns: Prometheus text format metrics
-    """
-    return Response(content=generate_latest(), media_type="text/plain")
+async def metrics():
+    return Response(generate_latest(_reg), media_type=CONTENT_TYPE_LATEST)
 
-# ============================================================================
-# BUSINESS LOGIC ENDPOINTS
-# ============================================================================
+@app.post("/pay")
+async def pay(req: PaymentRequest):
+    start = time.time()
+    active_reqs.inc()
+    pay_id = str(uuid.uuid4())
+    try:
+        # Simulate payment processing (CPU-intensive hash)
+        _ = hashlib.sha256((req.order_id * 50).encode()).hexdigest()
+        await asyncio.sleep(random.uniform(0.05, 0.15))
 
-@app.post("/process-payment")
-async def process_payment(amount: float):
-    """
-    Process a payment transaction
+        # Simulate 2% failure rate
+        if random.random() < 0.02:
+            pay_total.labels(status="failed").inc()
+            _record_req("POST", "/pay", "500", start)
+            raise HTTPException(500, "Payment gateway error")
 
-    Args:
-        amount: Payment amount in dollars
+        if _pool:
+            async with _pool.acquire() as conn:
+                await conn.execute(
+                    "INSERT INTO payments (id, order_id, amount, status) VALUES ($1,$2,$3,'completed')",
+                    pay_id, req.order_id, req.amount
+                )
 
-    Returns:
-        Payment result with transaction ID
+        pay_total.labels(status="completed").inc()
+        _record_req("POST", "/pay", "200", start)
+        return {"payment_id": pay_id, "status": "completed", "amount": req.amount}
 
-    Raises:
-        400: Invalid amount
-        503: Service unavailable (chaos injection)
-    """
+    except HTTPException:
+        raise
+    except Exception as e:
+        _record_req("POST", "/pay", "500", start)
+        log.error(f"Payment error: {e}")
+        raise HTTPException(500, "Internal error")
+    finally:
+        active_reqs.dec()
 
-    # Validation
-    if amount <= 0:
-        raise HTTPException(status_code=400, detail="Amount must be positive")
+@app.get("/status/{pay_id}")
+async def payment_status(pay_id: str):
+    start = time.time()
+    try:
+        if _pool:
+            async with _pool.acquire() as conn:
+                row = await conn.fetchrow("SELECT * FROM payments WHERE id=$1", pay_id)
+                if row:
+                    _record_req("GET", "/status/{id}", "200", start)
+                    return dict(row)
+        _record_req("GET", "/status/{id}", "404", start)
+        raise HTTPException(404, "Payment not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        _record_req("GET", "/status/{id}", "500", start)
+        raise HTTPException(500, str(e))
 
-    if amount > 100000:
-        raise HTTPException(status_code=400, detail="Amount exceeds limit")
+@app.post("/process")
+async def process():
+    """Locust load endpoint."""
+    start = time.time()
+    active_reqs.inc()
+    _ = hashlib.sha256((str(random.random()) * 200).encode()).hexdigest()
+    await asyncio.sleep(random.uniform(0.02, 0.08))
+    active_reqs.dec()
+    _record_req("POST", "/process", "200", start)
+    return {"processed": True}
 
-    # Simulate processing time
-    processing_time = 0.1 + (amount / 10000)  # More delay for large amounts
-    await asyncio.sleep(processing_time)
+def _record_req(method, endpoint, status, start):
+    req_total.labels(method=method, endpoint=endpoint, status=status).inc()
+    req_latency.labels(endpoint=endpoint).observe(time.time() - start)
 
-    # Simulate occasional failures (1% error rate)
-    import random
-    if random.random() < 0.01:
-        raise HTTPException(status_code=503, detail="Processing temporarily unavailable")
-
-    return {
-        "status": "success",
-        "transaction_id": f"txn-{int(time.time())}",
-        "amount": amount,
-        "timestamp": datetime.utcnow().isoformat(),
-    }
-
-@app.get("/list-transactions")
-async def list_transactions():
-    """
-    List recent transactions
-
-    Returns:
-        List of mock transaction records
-    """
-    return {
-        "transactions": [
-            {
-                "transaction_id": f"txn-{1000 + i}",
-                "amount": 50 + i * 10,
-                "status": "completed",
-                "timestamp": (datetime.utcnow().timestamp() - i * 60),
-            }
-            for i in range(5)
-        ],
-        "count": 5,
-    }
-
-@app.post("/refund")
-async def refund(transaction_id: str, amount: float):
-    """
-    Process a refund
-
-    Args:
-        transaction_id: Transaction to refund
-        amount: Refund amount
-
-    Returns:
-        Refund confirmation
-    """
-
-    if amount <= 0:
-        raise HTTPException(status_code=400, detail="Refund amount must be positive")
-
-    # Simulate processing
-    await asyncio.sleep(0.15)
-
-    return {
-        "status": "success",
-        "refund_id": f"ref-{int(time.time())}",
-        "transaction_id": transaction_id,
-        "amount": amount,
-        "timestamp": datetime.utcnow().isoformat(),
-    }
-
-# ============================================================================
-# CHAOS INJECTION ENDPOINTS (for testing)
-# ============================================================================
-
-@app.post("/chaos/degrade")
-async def chaos_degrade(latency_ms: int = 500):
-    """
-    Simulate service degradation (add latency)
-    For testing chaos engineering detection
-    """
-    logger.warning(f"⚠️ Chaos: Adding {latency_ms}ms latency")
-    service_state["chaos_latency"] = latency_ms
-    return {"status": "degraded", "latency_ms": latency_ms}
-
-@app.post("/chaos/recover")
-async def chaos_recover():
-    """
-    Recover from chaos injection
-    """
-    logger.info("✅ Chaos: Recovering to normal")
-    service_state["chaos_latency"] = 0
-    return {"status": "recovered"}
-
-# ============================================================================
-# ROOT ENDPOINT
-# ============================================================================
-
-@app.get("/")
-def root():
-    """Root endpoint"""
-    return {
-        "service": service_state["name"],
-        "version": service_state["version"],
-        "docs": "/docs",
-        "health": "/health",
-        "metrics": "/metrics",
-    }
-
-# ============================================================================
-# STARTUP MESSAGE
-# ============================================================================
+async def _metrics_simulator():
+    while True:
+        cpu_sim.set(random.uniform(20, 55))  # payment-service is CPU heavier
+        mem_sim.set(random.uniform(80, 180))
+        await asyncio.sleep(5)
 
 if __name__ == "__main__":
     import uvicorn
-
-    logger.info("""
-╔════════════════════════════════════════════════════════════╗
-║         DARWIN Payment Service Starting                   ║
-║                                                            ║
-║  📊 Health Check:  http://localhost:8080/health           ║
-║  📈 Metrics:       http://localhost:8080/metrics           ║
-║  📖 API Docs:      http://localhost:8080/docs             ║
-║  🔗 Root:          http://localhost:8080/                 ║
-║                                                            ║
-║  Service: payment-service v1.0.0                          ║
-║  Target Application (Patient) for DARWIN                 ║
-╚════════════════════════════════════════════════════════════╝
-    """)
-
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=8080,
-        log_level="info"
-    )
+    uvicorn.run(app, host="0.0.0.0", port=PORT)

@@ -1,3 +1,0 @@
-"""
-DARWIN test suite
-"""

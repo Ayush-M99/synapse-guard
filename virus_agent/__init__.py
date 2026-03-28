@@ -1,1 +1,0 @@
-"""Virus agent package init."""

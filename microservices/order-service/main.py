@@ -1,364 +1,158 @@
 """
-Order Service - Order Management - DARWIN Target Application
-Simple FastAPI microservice for testing chaos engineering
+order-service — Order management
+FastAPI / PostgreSQL (asyncpg)
+Calls: payment-service, inventory-service
 """
-
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import Response
-import time
-import logging
-from datetime import datetime
-from prometheus_client import Counter, Histogram, Gauge, generate_latest
-from contextlib import asynccontextmanager
 import asyncio
+import logging
+import os
+import random
+import time
+import uuid
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# ============================================================================
-# PROMETHEUS METRICS - 7-Feature Vector
-# ============================================================================
-
-# Counter: Total HTTP requests
-http_requests_total = Counter(
-    'http_requests_total',
-    'Total HTTP requests',
-    ['method', 'endpoint', 'status']
+import asyncpg
+import httpx
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import Response
+from prometheus_client import (
+    Counter, Histogram, Gauge, generate_latest,
+    CONTENT_TYPE_LATEST, CollectorRegistry
 )
+from pydantic import BaseModel
 
-# Histogram: Request duration
-http_request_duration_seconds = Histogram(
-    'http_request_duration_seconds',
-    'HTTP request duration in seconds',
-    ['method', 'endpoint']
-)
+SERVICE_NAME   = os.getenv("SERVICE_NAME", "order-service")
+DB_URL         = os.getenv("DATABASE_URL", "postgresql://chaos:chaospassword@localhost:5432/chaos_dna")
+PAYMENT_URL    = os.getenv("PAYMENT_SERVICE_URL", "http://payment-service")
+INVENTORY_URL  = os.getenv("INVENTORY_SERVICE_URL", "http://inventory-service")
+PORT           = int(os.getenv("PORT", "8012"))
 
-# Gauge: Current error rate (%)
-http_error_rate = Gauge(
-    'http_error_rate',
-    'Current HTTP error rate (percentage)',
-)
+logging.basicConfig(level=logging.INFO, format=f"[{SERVICE_NAME}] %(message)s")
+log = logging.getLogger(__name__)
 
-# Gauge: P99 latency
-http_latency_p99_ms = Gauge(
-    'http_latency_p99_ms',
-    'P99 HTTP latency in milliseconds',
-)
+_reg = CollectorRegistry()
+req_total       = Counter("http_requests_total", "Total requests",
+                           ["method", "endpoint", "status"], registry=_reg)
+req_latency     = Histogram("http_request_duration_seconds", "Latency",
+                             ["endpoint"], registry=_reg)
+orders_created  = Counter("orders_created_total", "Orders created", registry=_reg)
+orders_failed   = Counter("orders_failed_total",  "Orders failed",  registry=_reg)
+active_reqs     = Gauge("active_requests", "Active requests", registry=_reg)
+downstream_errs = Counter("downstream_errors_total", "Downstream errors",
+                          ["service"], registry=_reg)
+cpu_sim         = Gauge("simulated_cpu_pct", "CPU %", registry=_reg)
+mem_sim         = Gauge("simulated_mem_mb",  "Mem MB", registry=_reg)
 
-# Gauge: Pod restart count (simulated)
-pod_restart_count = Gauge(
-    'pod_restart_count',
-    'Pod restart count',
-)
+app  = FastAPI(title=SERVICE_NAME)
+_pool: asyncpg.Pool = None
 
-# Gauge: Network RX bytes
-network_rx_bytes = Gauge(
-    'network_rx_bytes',
-    'Network received bytes',
-)
-
-# Gauge: Network TX bytes
-network_tx_bytes = Gauge(
-    'network_tx_bytes',
-    'Network transmitted bytes',
-)
-
-# ============================================================================
-# SERVICE STATE
-# ============================================================================
-
-service_state = {
-    "name": "order-service",
-    "version": "1.0.0",
-    "status": "healthy",
-    "start_time": datetime.utcnow(),
-    "request_count": 0,
-    "error_count": 0,
-    "latencies": [],  # Last 100 request latencies
-    "max_latencies": 100,
-}
-
-# ============================================================================
-# LIFECYCLE EVENTS
-# ============================================================================
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Startup and shutdown events"""
-    logger.info("🚀 Order Service starting up...")
-    service_state["start_time"] = datetime.utcnow()
-
-    # Initialize metrics
-    pod_restart_count.set(0)
-    network_rx_bytes.set(0)
-    network_tx_bytes.set(0)
-    http_error_rate.set(0)
-    http_latency_p99_ms.set(0)
-
-    yield
-
-    logger.info("🛑 Order Service shutting down...")
-
-# ============================================================================
-# CREATE FASTAPI APP
-# ============================================================================
-
-app = FastAPI(
-    title="DARWIN Order Service",
-    description="Target microservice for chaos engineering testing",
-    version="1.0.0",
-    lifespan=lifespan
-)
-
-# ============================================================================
-# MIDDLEWARE - Request timing and metrics
-# ============================================================================
-
-@app.middleware("http")
-async def track_metrics(request: Request, call_next):
-    """Track request metrics"""
-    start_time = time.time()
-
+@app.on_event("startup")
+async def startup():
+    global _pool
     try:
-        response = await call_next(request)
-
-        # Calculate latency
-        latency = time.time() - start_time
-
-        # Record metrics
-        service_state["request_count"] += 1
-        http_requests_total.labels(
-            method=request.method,
-            endpoint=request.url.path,
-            status=response.status_code
-        ).inc()
-
-        http_request_duration_seconds.labels(
-            method=request.method,
-            endpoint=request.url.path
-        ).observe(latency)
-
-        # Track latencies for P99 calculation
-        service_state["latencies"].append(latency * 1000)  # Convert to ms
-        if len(service_state["latencies"]) > service_state["max_latencies"]:
-            service_state["latencies"].pop(0)
-
-        # Update error rate
-        if response.status_code >= 400:
-            service_state["error_count"] += 1
-
-        error_rate = (service_state["error_count"] / max(service_state["request_count"], 1)) * 100
-        http_error_rate.set(error_rate)
-
-        # Update P99 latency
-        if service_state["latencies"]:
-            sorted_latencies = sorted(service_state["latencies"])
-            p99_index = int(len(sorted_latencies) * 0.99)
-            http_latency_p99_ms.set(sorted_latencies[p99_index])
-
-        return response
-
+        _pool = await asyncpg.create_pool(DB_URL, min_size=2, max_size=10)
+        async with _pool.acquire() as conn:
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS orders (
+                    id         VARCHAR(36) PRIMARY KEY,
+                    user_id    VARCHAR(100),
+                    item_id    VARCHAR(100),
+                    quantity   INT,
+                    total      FLOAT,
+                    status     VARCHAR(20) DEFAULT 'created',
+                    created    TIMESTAMP DEFAULT NOW()
+                )
+            """)
+        log.info("DB ready")
     except Exception as e:
-        logger.error(f"Request failed: {str(e)}")
-        service_state["error_count"] += 1
-        raise
+        log.warning(f"DB unavailable: {e}")
+    asyncio.create_task(_metrics_simulator())
 
-# ============================================================================
-# HEALTH ENDPOINT
-# ============================================================================
+@app.on_event("shutdown")
+async def shutdown():
+    if _pool: await _pool.close()
+
+class OrderRequest(BaseModel):
+    user_id:  str
+    item_id:  str
+    quantity: int = 1
+    price:    float = 9.99
 
 @app.get("/health")
-def health():
-    """
-    Health check endpoint
-    Returns: JSON with service status
-    """
-    uptime = (datetime.utcnow() - service_state["start_time"]).total_seconds()
-
-    return {
-        "status": service_state["status"],
-        "service": service_state["name"],
-        "version": service_state["version"],
-        "uptime_seconds": uptime,
-        "timestamp": datetime.utcnow().isoformat(),
-    }
-
-# ============================================================================
-# METRICS ENDPOINT
-# ============================================================================
+async def health():
+    return {"status": "ok", "service": SERVICE_NAME, "ts": time.time()}
 
 @app.get("/metrics")
-def metrics():
-    """
-    Prometheus metrics endpoint
-    Returns: Prometheus text format metrics
-    """
-    return Response(content=generate_latest(), media_type="text/plain")
+async def metrics():
+    return Response(generate_latest(_reg), media_type=CONTENT_TYPE_LATEST)
 
-# ============================================================================
-# BUSINESS LOGIC ENDPOINTS
-# ============================================================================
+@app.post("/order")
+async def create_order(req: OrderRequest):
+    start = time.time()
+    active_reqs.inc()
+    order_id = str(uuid.uuid4())
+    try:
+        total = req.quantity * req.price
+        await asyncio.sleep(random.uniform(0.02, 0.06))
 
-@app.post("/order/create")
-async def create_order(user_id: str, items: list = None):
-    """
-    Create a new order
+        # Call payment-service
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as c:
+                await c.post(f"{PAYMENT_URL}/pay",
+                             json={"order_id": order_id, "amount": total})
+        except Exception as e:
+            downstream_errs.labels(service="payment").inc()
+            log.warning(f"Payment failed: {e}")
 
-    Args:
-        user_id: User ID
-        items: List of items to order
+        # Persist order
+        if _pool:
+            async with _pool.acquire() as conn:
+                await conn.execute(
+                    "INSERT INTO orders (id, user_id, item_id, quantity, total) VALUES($1,$2,$3,$4,$5)",
+                    order_id, req.user_id, req.item_id, req.quantity, total
+                )
 
-    Returns:
-        Order ID and status
+        orders_created.inc()
+        _record_req("POST", "/order", "200", start)
+        return {"order_id": order_id, "status": "created", "total": total}
 
-    Raises:
-        400: Invalid request
-        503: Service unavailable (chaos injection)
-    """
+    except Exception as e:
+        orders_failed.inc()
+        _record_req("POST", "/order", "500", start)
+        raise HTTPException(500, str(e))
+    finally:
+        active_reqs.dec()
 
-    if not user_id or not items:
-        raise HTTPException(status_code=400, detail="user_id and items required")
+@app.get("/orders/{user_id}")
+async def list_orders(user_id: str):
+    start = time.time()
+    try:
+        if _pool:
+            async with _pool.acquire() as conn:
+                rows = await conn.fetch("SELECT * FROM orders WHERE user_id=$1 LIMIT 20", user_id)
+                _record_req("GET", "/orders/{id}", "200", start)
+                return [dict(r) for r in rows]
+        return []
+    except Exception as e:
+        _record_req("GET", "/orders/{id}", "500", start)
+        raise HTTPException(500, str(e))
 
-    # Simulate order creation
-    await asyncio.sleep(0.15)
+@app.post("/process")
+async def process():
+    active_reqs.inc()
+    await asyncio.sleep(random.uniform(0.01, 0.04))
+    active_reqs.dec()
+    return {"processed": True}
 
-    import random
-    if random.random() < 0.01:
-        raise HTTPException(status_code=503, detail="Order service temporarily unavailable")
+def _record_req(method, endpoint, status, start):
+    req_total.labels(method=method, endpoint=endpoint, status=status).inc()
+    req_latency.labels(endpoint=endpoint).observe(time.time() - start)
 
-    order_id = f"ord-{int(time.time())}"
-
-    return {
-        "status": "success",
-        "order_id": order_id,
-        "user_id": user_id,
-        "order_status": "pending",
-        "items_count": len(items),
-        "timestamp": datetime.utcnow().isoformat(),
-    }
-
-@app.get("/order/{order_id}")
-async def get_order(order_id: str):
-    """
-    Get order details
-
-    Args:
-        order_id: Order ID
-
-    Returns:
-        Order details with items and status
-    """
-    if not order_id:
-        raise HTTPException(status_code=400, detail="order_id required")
-
-    # Simulate lookup
-    await asyncio.sleep(0.08)
-
-    return {
-        "order_id": order_id,
-        "user_id": "user-12345",
-        "status": "processing",
-        "items": [
-            {"sku": "SKU-001", "quantity": 2, "price": 29.99},
-            {"sku": "SKU-002", "quantity": 1, "price": 49.99},
-        ],
-        "total": 109.97,
-        "timestamp": datetime.utcnow().isoformat(),
-    }
-
-@app.put("/order/{order_id}/status")
-async def update_order_status(order_id: str, new_status: str):
-    """
-    Update order status
-
-    Args:
-        order_id: Order ID
-        new_status: New status (pending, processing, shipped, delivered, cancelled)
-
-    Returns:
-        Updated order with new status
-    """
-
-    if not order_id or not new_status:
-        raise HTTPException(status_code=400, detail="order_id and new_status required")
-
-    valid_statuses = ["pending", "processing", "shipped", "delivered", "cancelled"]
-    if new_status not in valid_statuses:
-        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of {valid_statuses}")
-
-    # Simulate status update
-    await asyncio.sleep(0.1)
-
-    return {
-        "status": "success",
-        "order_id": order_id,
-        "order_status": new_status,
-        "updated_at": datetime.utcnow().isoformat(),
-    }
-
-# ============================================================================
-# CHAOS INJECTION ENDPOINTS (for testing)
-# ============================================================================
-
-@app.post("/chaos/degrade")
-async def chaos_degrade(latency_ms: int = 500):
-    """
-    Simulate service degradation (add latency)
-    For testing chaos engineering detection
-    """
-    logger.warning(f"⚠️ Chaos: Adding {latency_ms}ms latency")
-    service_state["chaos_latency"] = latency_ms
-    return {"status": "degraded", "latency_ms": latency_ms}
-
-@app.post("/chaos/recover")
-async def chaos_recover():
-    """
-    Recover from chaos injection
-    """
-    logger.info("✅ Chaos: Recovering to normal")
-    service_state["chaos_latency"] = 0
-    return {"status": "recovered"}
-
-# ============================================================================
-# ROOT ENDPOINT
-# ============================================================================
-
-@app.get("/")
-def root():
-    """Root endpoint"""
-    return {
-        "service": service_state["name"],
-        "version": service_state["version"],
-        "docs": "/docs",
-        "health": "/health",
-        "metrics": "/metrics",
-    }
-
-# ============================================================================
-# STARTUP MESSAGE
-# ============================================================================
+async def _metrics_simulator():
+    while True:
+        cpu_sim.set(random.uniform(10, 35))
+        mem_sim.set(random.uniform(60, 130))
+        await asyncio.sleep(5)
 
 if __name__ == "__main__":
     import uvicorn
-
-    logger.info("""
-╔════════════════════════════════════════════════════════════╗
-║         DARWIN Order Service Starting                      ║
-║                                                            ║
-║  📊 Health Check:  http://localhost:8080/health           ║
-║  📈 Metrics:       http://localhost:8080/metrics           ║
-║  📖 API Docs:      http://localhost:8080/docs             ║
-║  🔗 Root:          http://localhost:8080/                 ║
-║                                                            ║
-║  Service: order-service v1.0.0                            ║
-║  Target Application (Patient) for DARWIN                 ║
-╚════════════════════════════════════════════════════════════╝
-    """)
-
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=8080,
-        log_level="info"
-    )
+    uvicorn.run(app, host="0.0.0.0", port=PORT)

@@ -1,335 +1,107 @@
 """
-Notification Service - Notifications (Email/SMS/Webhooks) - DARWIN Target Application
-Simple FastAPI microservice for testing chaos engineering
+notification-service — Alert / notification dispatcher
+FastAPI — no DB, lightweight event emitter
 """
-
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import Response
-import time
-import logging
-from datetime import datetime
-from prometheus_client import Counter, Histogram, Gauge, generate_latest
-from contextlib import asynccontextmanager
 import asyncio
+import logging
+import os
+import random
+import time
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# ============================================================================
-# PROMETHEUS METRICS - 7-Feature Vector
-# ============================================================================
-
-# Counter: Total HTTP requests
-http_requests_total = Counter(
-    'http_requests_total',
-    'Total HTTP requests',
-    ['method', 'endpoint', 'status']
+from fastapi import FastAPI
+from fastapi.responses import Response
+from prometheus_client import (
+    Counter, Histogram, Gauge, generate_latest,
+    CONTENT_TYPE_LATEST, CollectorRegistry
 )
+from pydantic import BaseModel
 
-# Histogram: Request duration
-http_request_duration_seconds = Histogram(
-    'http_request_duration_seconds',
-    'HTTP request duration in seconds',
-    ['method', 'endpoint']
-)
+SERVICE_NAME = os.getenv("SERVICE_NAME", "notification-service")
+PORT         = int(os.getenv("PORT", "8015"))
 
-# Gauge: Current error rate (%)
-http_error_rate = Gauge(
-    'http_error_rate',
-    'Current HTTP error rate (percentage)',
-)
+logging.basicConfig(level=logging.INFO, format=f"[{SERVICE_NAME}] %(message)s")
+log = logging.getLogger(__name__)
 
-# Gauge: P99 latency
-http_latency_p99_ms = Gauge(
-    'http_latency_p99_ms',
-    'P99 HTTP latency in milliseconds',
-)
+_reg          = CollectorRegistry()
+req_total     = Counter("http_requests_total", "Total requests",
+                        ["method", "endpoint", "status"], registry=_reg)
+req_latency   = Histogram("http_request_duration_seconds", "Latency",
+                          ["endpoint"], registry=_reg)
+notifs_sent   = Counter("notifications_sent_total", "Notifications sent",
+                        ["channel"], registry=_reg)
+active_reqs   = Gauge("active_requests", "Active requests", registry=_reg)
+cpu_sim       = Gauge("simulated_cpu_pct", "CPU %", registry=_reg)
+mem_sim       = Gauge("simulated_mem_mb",  "Mem MB", registry=_reg)
 
-# Gauge: Pod restart count (simulated)
-pod_restart_count = Gauge(
-    'pod_restart_count',
-    'Pod restart count',
-)
+app = FastAPI(title=SERVICE_NAME)
+_notification_log: list[dict] = []
 
-# Gauge: Network RX bytes
-network_rx_bytes = Gauge(
-    'network_rx_bytes',
-    'Network received bytes',
-)
+class NotificationRequest(BaseModel):
+    user_id:  str
+    event:    str
+    message:  str
+    channel:  str = "email"  # email | sms | push
 
-# Gauge: Network TX bytes
-network_tx_bytes = Gauge(
-    'network_tx_bytes',
-    'Network transmitted bytes',
-)
-
-# ============================================================================
-# SERVICE STATE
-# ============================================================================
-
-service_state = {
-    "name": "notification-service",
-    "version": "1.0.0",
-    "status": "healthy",
-    "start_time": datetime.utcnow(),
-    "request_count": 0,
-    "error_count": 0,
-    "latencies": [],  # Last 100 request latencies
-    "max_latencies": 100,
-}
-
-# ============================================================================
-# LIFECYCLE EVENTS
-# ============================================================================
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Startup and shutdown events"""
-    logger.info("🚀 Notification Service starting up...")
-    service_state["start_time"] = datetime.utcnow()
-
-    # Initialize metrics
-    pod_restart_count.set(0)
-    network_rx_bytes.set(0)
-    network_tx_bytes.set(0)
-    http_error_rate.set(0)
-    http_latency_p99_ms.set(0)
-
-    yield
-
-    logger.info("🛑 Notification Service shutting down...")
-
-# ============================================================================
-# CREATE FASTAPI APP
-# ============================================================================
-
-app = FastAPI(
-    title="DARWIN Notification Service",
-    description="Target microservice for chaos engineering testing",
-    version="1.0.0",
-    lifespan=lifespan
-)
-
-# ============================================================================
-# MIDDLEWARE - Request timing and metrics
-# ============================================================================
-
-@app.middleware("http")
-async def track_metrics(request: Request, call_next):
-    """Track request metrics"""
-    start_time = time.time()
-
-    try:
-        response = await call_next(request)
-
-        # Calculate latency
-        latency = time.time() - start_time
-
-        # Record metrics
-        service_state["request_count"] += 1
-        http_requests_total.labels(
-            method=request.method,
-            endpoint=request.url.path,
-            status=response.status_code
-        ).inc()
-
-        http_request_duration_seconds.labels(
-            method=request.method,
-            endpoint=request.url.path
-        ).observe(latency)
-
-        # Track latencies for P99 calculation
-        service_state["latencies"].append(latency * 1000)  # Convert to ms
-        if len(service_state["latencies"]) > service_state["max_latencies"]:
-            service_state["latencies"].pop(0)
-
-        # Update error rate
-        if response.status_code >= 400:
-            service_state["error_count"] += 1
-
-        error_rate = (service_state["error_count"] / max(service_state["request_count"], 1)) * 100
-        http_error_rate.set(error_rate)
-
-        # Update P99 latency
-        if service_state["latencies"]:
-            sorted_latencies = sorted(service_state["latencies"])
-            p99_index = int(len(sorted_latencies) * 0.99)
-            http_latency_p99_ms.set(sorted_latencies[p99_index])
-
-        return response
-
-    except Exception as e:
-        logger.error(f"Request failed: {str(e)}")
-        service_state["error_count"] += 1
-        raise
-
-# ============================================================================
-# HEALTH ENDPOINT
-# ============================================================================
+@app.on_event("startup")
+async def startup():
+    asyncio.create_task(_metrics_simulator())
 
 @app.get("/health")
-def health():
-    """
-    Health check endpoint
-    Returns: JSON with service status
-    """
-    uptime = (datetime.utcnow() - service_state["start_time"]).total_seconds()
-
-    return {
-        "status": service_state["status"],
-        "service": service_state["name"],
-        "version": service_state["version"],
-        "uptime_seconds": uptime,
-        "timestamp": datetime.utcnow().isoformat(),
-    }
-
-# ============================================================================
-# METRICS ENDPOINT
-# ============================================================================
+async def health():
+    return {"status": "ok", "service": SERVICE_NAME}
 
 @app.get("/metrics")
-def metrics():
-    """
-    Prometheus metrics endpoint
-    Returns: Prometheus text format metrics
-    """
-    return Response(content=generate_latest(), media_type="text/plain")
+async def metrics():
+    return Response(generate_latest(_reg), media_type=CONTENT_TYPE_LATEST)
 
-# ============================================================================
-# BUSINESS LOGIC ENDPOINTS
-# ============================================================================
+@app.post("/notify")
+async def send_notification(req: NotificationRequest):
+    start = time.time()
+    active_reqs.inc()
+    try:
+        await asyncio.sleep(random.uniform(0.01, 0.03))
+        notif = {
+            "id":        len(_notification_log) + 1,
+            "user_id":   req.user_id,
+            "event":     req.event,
+            "message":   req.message,
+            "channel":   req.channel,
+            "sent_at":   time.time(),
+            "status":    "delivered",
+        }
+        _notification_log.append(notif)
+        if len(_notification_log) > 500:
+            _notification_log.pop(0)
+        notifs_sent.labels(channel=req.channel).inc()
+        _record_req("POST", "/notify", "200", start)
+        return notif
+    except Exception as e:
+        _record_req("POST", "/notify", "500", start)
+        raise
+    finally:
+        active_reqs.dec()
 
-@app.post("/notify/send")
-async def send_notification(notif_type: str, recipient: str, message: str):
-    """
-    Send notification via email/SMS/webhook
+@app.get("/recent")
+async def recent_notifications(limit: int = 20):
+    return {"notifications": _notification_log[-limit:][::-1]}
 
-    Args:
-        notif_type: Type of notification (email, sms, webhook)
-        recipient: Recipient address/phone/webhook_url
-        message: Message content
+@app.post("/process")
+async def process():
+    active_reqs.inc()
+    await asyncio.sleep(random.uniform(0.005, 0.015))
+    active_reqs.dec()
+    return {"processed": True}
 
-    Returns:
-        Notification ID and status
+def _record_req(method, endpoint, status, start):
+    req_total.labels(method=method, endpoint=endpoint, status=status).inc()
+    req_latency.labels(endpoint=endpoint).observe(time.time() - start)
 
-    Raises:
-        400: Invalid request
-        503: Service unavailable (chaos injection)
-    """
-
-    if not notif_type or not recipient or not message:
-        raise HTTPException(status_code=400, detail="notif_type, recipient, and message required")
-
-    valid_types = ["email", "sms", "webhook"]
-    if notif_type not in valid_types:
-        raise HTTPException(status_code=400, detail=f"Invalid type. Must be one of {valid_types}")
-
-    # Simulate sending
-    await asyncio.sleep(0.12)
-
-    import random
-    if random.random() < 0.01:
-        raise HTTPException(status_code=503, detail="Notification service temporarily unavailable")
-
-    notification_id = f"notif-{int(time.time())}"
-
-    return {
-        "id": notification_id,
-        "status": "sent",
-        "type": notif_type,
-        "recipient": recipient,
-        "created_at": datetime.utcnow().isoformat(),
-    }
-
-@app.get("/notify/{notification_id}")
-async def get_notification(notification_id: str):
-    """
-    Get notification status
-
-    Args:
-        notification_id: Notification ID
-
-    Returns:
-        Notification details including status
-    """
-    if not notification_id:
-        raise HTTPException(status_code=400, detail="notification_id required")
-
-    # Simulate lookup
-    await asyncio.sleep(0.07)
-
-    return {
-        "id": notification_id,
-        "type": "email",
-        "recipient": "user@example.com",
-        "status": "delivered",
-        "created_at": datetime.utcnow().isoformat(),
-        "delivered_at": datetime.utcnow().isoformat(),
-    }
-
-# ============================================================================
-# CHAOS INJECTION ENDPOINTS (for testing)
-# ============================================================================
-
-@app.post("/chaos/degrade")
-async def chaos_degrade(latency_ms: int = 500):
-    """
-    Simulate service degradation (add latency)
-    For testing chaos engineering detection
-    """
-    logger.warning(f"⚠️ Chaos: Adding {latency_ms}ms latency")
-    service_state["chaos_latency"] = latency_ms
-    return {"status": "degraded", "latency_ms": latency_ms}
-
-@app.post("/chaos/recover")
-async def chaos_recover():
-    """
-    Recover from chaos injection
-    """
-    logger.info("✅ Chaos: Recovering to normal")
-    service_state["chaos_latency"] = 0
-    return {"status": "recovered"}
-
-# ============================================================================
-# ROOT ENDPOINT
-# ============================================================================
-
-@app.get("/")
-def root():
-    """Root endpoint"""
-    return {
-        "service": service_state["name"],
-        "version": service_state["version"],
-        "docs": "/docs",
-        "health": "/health",
-        "metrics": "/metrics",
-    }
-
-# ============================================================================
-# STARTUP MESSAGE
-# ============================================================================
+async def _metrics_simulator():
+    while True:
+        cpu_sim.set(random.uniform(3, 15))
+        mem_sim.set(random.uniform(30, 60))
+        await asyncio.sleep(5)
 
 if __name__ == "__main__":
     import uvicorn
-
-    logger.info("""
-╔════════════════════════════════════════════════════════════╗
-║         DARWIN Notification Service Starting               ║
-║                                                            ║
-║  📊 Health Check:  http://localhost:8080/health           ║
-║  📈 Metrics:       http://localhost:8080/metrics           ║
-║  📖 API Docs:      http://localhost:8080/docs             ║
-║  🔗 Root:          http://localhost:8080/                 ║
-║                                                            ║
-║  Service: notification-service v1.0.0                     ║
-║  Target Application (Patient) for DARWIN                 ║
-╚════════════════════════════════════════════════════════════╝
-    """)
-
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=8080,
-        log_level="info"
-    )
+    uvicorn.run(app, host="0.0.0.0", port=PORT)

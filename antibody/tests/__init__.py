@@ -1,3 +1,0 @@
-"""
-Antibody Agent Test Suite
-"""

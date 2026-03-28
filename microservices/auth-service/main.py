@@ -1,368 +1,189 @@
 """
-Auth Service - DARWIN Target Application
-User authentication and JWT token management
+auth-service — JWT authentication
+FastAPI / PostgreSQL (asyncpg)
+Exposes: /health /metrics /register /login /verify
 """
-
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import Response
-import time
-import logging
-from datetime import datetime
-from prometheus_client import Counter, Histogram, Gauge, generate_latest
-from contextlib import asynccontextmanager
 import asyncio
+import hashlib
+import hmac
+import json
+import logging
+import os
+import random
+import time
+from datetime import datetime, timedelta
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# ============================================================================
-# PROMETHEUS METRICS - 7-Feature Vector
-# ============================================================================
-
-# Counter: Total HTTP requests
-http_requests_total = Counter(
-    'http_requests_total',
-    'Total HTTP requests',
-    ['method', 'endpoint', 'status']
+import asyncpg
+from fastapi import FastAPI, HTTPException, Header
+from fastapi.responses import Response
+from prometheus_client import (
+    Counter, Histogram, Gauge,
+    generate_latest, CONTENT_TYPE_LATEST,
+    REGISTRY, CollectorRegistry
 )
+from pydantic import BaseModel
 
-# Histogram: Request duration
-http_request_duration_seconds = Histogram(
-    'http_request_duration_seconds',
-    'HTTP request duration in seconds',
-    ['method', 'endpoint']
-)
+SERVICE_NAME = os.getenv("SERVICE_NAME", "auth-service")
+DB_URL       = os.getenv("DATABASE_URL", "postgresql://chaos:chaospassword@localhost:5432/chaos_dna")
+JWT_SECRET   = os.getenv("JWT_SECRET",   "darwin-secret-key-2024")
+PORT         = int(os.getenv("PORT", "8010"))
 
-# Gauge: Current error rate (%)
-http_error_rate = Gauge(
-    'http_error_rate',
-    'Current HTTP error rate (percentage)',
-)
+logging.basicConfig(level=logging.INFO, format=f"[{SERVICE_NAME}] %(message)s")
+log = logging.getLogger(__name__)
 
-# Gauge: P99 latency
-http_latency_p99_ms = Gauge(
-    'http_latency_p99_ms',
-    'P99 HTTP latency in milliseconds',
-)
+# ── Prometheus metrics ────────────────────────────────────────────────────────
+_reg = CollectorRegistry()
+req_total   = Counter("http_requests_total", "Total HTTP requests",
+                       ["method", "endpoint", "status"], registry=_reg)
+req_latency = Histogram("http_request_duration_seconds", "Request latency",
+                         ["endpoint"], registry=_reg)
+active_reqs = Gauge("active_requests", "Active requests currently processing", registry=_reg)
+db_errors   = Counter("db_errors_total", "DB connection errors", registry=_reg)
+cpu_sim     = Gauge("simulated_cpu_pct", "Simulated CPU usage %", registry=_reg)
+mem_sim     = Gauge("simulated_mem_mb",  "Simulated memory MB",  registry=_reg)
 
-# Gauge: Pod restart count (simulated)
-pod_restart_count = Gauge(
-    'pod_restart_count',
-    'Pod restart count',
-)
+app = FastAPI(title=SERVICE_NAME)
+_pool: asyncpg.Pool = None
 
-# Gauge: Network RX bytes
-network_rx_bytes = Gauge(
-    'network_rx_bytes',
-    'Network received bytes',
-)
-
-# Gauge: Network TX bytes
-network_tx_bytes = Gauge(
-    'network_tx_bytes',
-    'Network transmitted bytes',
-)
-
-# ============================================================================
-# SERVICE STATE
-# ============================================================================
-
-service_state = {
-    "name": "auth-service",
-    "version": "1.0.0",
-    "status": "healthy",
-    "start_time": datetime.utcnow(),
-    "request_count": 0,
-    "error_count": 0,
-    "latencies": [],  # Last 100 request latencies
-    "max_latencies": 100,
-}
-
-# ============================================================================
-# LIFECYCLE EVENTS
-# ============================================================================
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Startup and shutdown events"""
-    logger.info("🚀 Auth Service starting up...")
-    service_state["start_time"] = datetime.utcnow()
-
-    # Initialize metrics
-    pod_restart_count.set(0)
-    network_rx_bytes.set(0)
-    network_tx_bytes.set(0)
-    http_error_rate.set(0)
-    http_latency_p99_ms.set(0)
-
-    yield
-
-    logger.info("🛑 Auth Service shutting down...")
-
-# ============================================================================
-# CREATE FASTAPI APP
-# ============================================================================
-
-app = FastAPI(
-    title="DARWIN Auth Service",
-    description="Target microservice for chaos engineering testing",
-    version="1.0.0",
-    lifespan=lifespan
-)
-
-# ============================================================================
-# MIDDLEWARE - Request timing and metrics
-# ============================================================================
-
-@app.middleware("http")
-async def track_metrics(request: Request, call_next):
-    """Track request metrics"""
-    start_time = time.time()
-
+# ── Startup / Shutdown ────────────────────────────────────────────────────────
+@app.on_event("startup")
+async def startup():
+    global _pool
     try:
-        response = await call_next(request)
-
-        # Calculate latency
-        latency = time.time() - start_time
-
-        # Record metrics
-        service_state["request_count"] += 1
-        http_requests_total.labels(
-            method=request.method,
-            endpoint=request.url.path,
-            status=response.status_code
-        ).inc()
-
-        http_request_duration_seconds.labels(
-            method=request.method,
-            endpoint=request.url.path
-        ).observe(latency)
-
-        # Track latencies for P99 calculation
-        service_state["latencies"].append(latency * 1000)  # Convert to ms
-        if len(service_state["latencies"]) > service_state["max_latencies"]:
-            service_state["latencies"].pop(0)
-
-        # Update error rate
-        if response.status_code >= 400:
-            service_state["error_count"] += 1
-
-        error_rate = (service_state["error_count"] / max(service_state["request_count"], 1)) * 100
-        http_error_rate.set(error_rate)
-
-        # Update P99 latency
-        if service_state["latencies"]:
-            sorted_latencies = sorted(service_state["latencies"])
-            p99_index = int(len(sorted_latencies) * 0.99)
-            http_latency_p99_ms.set(sorted_latencies[p99_index])
-
-        return response
-
+        _pool = await asyncpg.create_pool(DB_URL, min_size=2, max_size=10)
+        async with _pool.acquire() as conn:
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id       SERIAL PRIMARY KEY,
+                    username VARCHAR(100) UNIQUE NOT NULL,
+                    password VARCHAR(200) NOT NULL,
+                    created  TIMESTAMP DEFAULT NOW()
+                )
+            """)
+        log.info("DB pool ready")
     except Exception as e:
-        logger.error(f"Request failed: {str(e)}")
-        service_state["error_count"] += 1
-        raise
+        log.warning(f"DB unavailable: {e} — running in degraded mode")
 
-# ============================================================================
-# HEALTH ENDPOINT
-# ============================================================================
+    # Seed metrics background task
+    asyncio.create_task(_metrics_simulator())
+
+@app.on_event("shutdown")
+async def shutdown():
+    if _pool:
+        await _pool.close()
+
+# ── Endpoints ─────────────────────────────────────────────────────────────────
+class UserCreds(BaseModel):
+    username: str
+    password: str
 
 @app.get("/health")
-def health():
-    """
-    Health check endpoint
-    Returns: JSON with service status
-    """
-    uptime = (datetime.utcnow() - service_state["start_time"]).total_seconds()
-
-    return {
-        "status": service_state["status"],
-        "service": service_state["name"],
-        "version": service_state["version"],
-        "uptime_seconds": uptime,
-        "timestamp": datetime.utcnow().isoformat(),
-    }
-
-# ============================================================================
-# METRICS ENDPOINT
-# ============================================================================
+async def health():
+    return {"status": "ok", "service": SERVICE_NAME, "ts": time.time()}
 
 @app.get("/metrics")
-def metrics():
-    """
-    Prometheus metrics endpoint
-    Returns: Prometheus text format metrics
-    """
-    return Response(content=generate_latest(), media_type="text/plain")
+async def metrics():
+    return Response(generate_latest(_reg), media_type=CONTENT_TYPE_LATEST)
 
-# ============================================================================
-# BUSINESS LOGIC ENDPOINTS
-# ============================================================================
+@app.post("/register")
+async def register(creds: UserCreds):
+    start = time.time()
+    active_reqs.inc()
+    try:
+        hashed = _hash_password(creds.password)
+        if _pool:
+            async with _pool.acquire() as conn:
+                await conn.execute(
+                    "INSERT INTO users (username, password) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                    creds.username, hashed
+                )
+        await asyncio.sleep(random.uniform(0.02, 0.08))
+        _record_req("POST", "/register", "200", start)
+        return {"registered": True, "username": creds.username}
+    except Exception as e:
+        _record_req("POST", "/register", "500", start)
+        db_errors.inc()
+        raise HTTPException(500, str(e))
+    finally:
+        active_reqs.dec()
 
-@app.post("/auth/login")
-async def login(username: str, password: str):
-    """
-    Authenticate user and return JWT token
+@app.post("/login")
+async def login(creds: UserCreds):
+    start = time.time()
+    active_reqs.inc()
+    try:
+        await asyncio.sleep(random.uniform(0.01, 0.05))
+        token = _make_token(creds.username)
+        _record_req("POST", "/login", "200", start)
+        return {"token": token, "expires_in": 3600}
+    except Exception as e:
+        _record_req("POST", "/login", "500", start)
+        raise HTTPException(500, str(e))
+    finally:
+        active_reqs.dec()
 
-    Args:
-        username: User username
-        password: User password
+@app.get("/verify")
+async def verify(authorization: str = Header(None)):
+    start = time.time()
+    try:
+        if not authorization or not authorization.startswith("Bearer "):
+            _record_req("GET", "/verify", "401", start)
+            raise HTTPException(401, "No token")
+        token = authorization.split(" ")[1]
+        sub = _verify_token(token)
+        if not sub:
+            _record_req("GET", "/verify", "401", start)
+            raise HTTPException(401, "Invalid token")
+        _record_req("GET", "/verify", "200", start)
+        return {"valid": True, "subject": sub}
+    except HTTPException:
+        raise
 
-    Returns:
-        Authentication token with expiration
+@app.post("/process")
+async def process():
+    """CPU-intensive endpoint — used by Locust for realistic load."""
+    start = time.time()
+    active_reqs.inc()
+    # Simulate realistic CPU work
+    _ = hashlib.sha256((str(time.time()) * 100).encode()).hexdigest()
+    await asyncio.sleep(random.uniform(0.01, 0.05))
+    active_reqs.dec()
+    _record_req("POST", "/process", "200", start)
+    return {"processed": True}
 
-    Raises:
-        401: Invalid credentials
-        503: Service unavailable (chaos injection)
-    """
+# ── Helpers ───────────────────────────────────────────────────────────────────
+def _hash_password(pw: str) -> str:
+    return hmac.new(JWT_SECRET.encode(), pw.encode(), hashlib.sha256).hexdigest()
 
-    # Validation
-    if not username or not password:
-        raise HTTPException(status_code=400, detail="Username and password required")
+def _make_token(subject: str) -> str:
+    payload = json.dumps({"sub": subject, "exp": time.time() + 3600})
+    sig = hmac.new(JWT_SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    import base64
+    return base64.b64encode(payload.encode()).decode() + "." + sig
 
-    # Simulate auth processing time
-    await asyncio.sleep(0.08)
+def _verify_token(token: str):
+    try:
+        import base64
+        parts = token.split(".")
+        payload = json.loads(base64.b64decode(parts[0]).decode())
+        if payload["exp"] < time.time():
+            return None
+        return payload["sub"]
+    except Exception:
+        return None
 
-    # Simulate occasional failures (1% error rate)
-    import random
-    if random.random() < 0.01:
-        raise HTTPException(status_code=503, detail="Auth service temporarily unavailable")
+def _record_req(method, endpoint, status, start):
+    elapsed = time.time() - start
+    req_total.labels(method=method, endpoint=endpoint, status=status).inc()
+    req_latency.labels(endpoint=endpoint).observe(elapsed)
 
-    # Simulate credential validation
-    if username == "invalid":
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-
-    return {
-        "status": "success",
-        "token": f"jwt-{int(time.time())}-{username}",
-        "expires_in": 3600,
-        "user_id": f"user-{hash(username) % 10000}",
-        "timestamp": datetime.utcnow().isoformat(),
-    }
-
-@app.post("/auth/verify")
-async def verify(token: str):
-    """
-    Verify JWT token validity
-
-    Returns:
-        Token validity status
-    """
-    if not token:
-        raise HTTPException(status_code=400, detail="Token required")
-
-    # Simulate verification processing
-    await asyncio.sleep(0.05)
-
-    # Check if token is valid format
-    if not token.startswith("jwt-"):
-        return {"valid": False, "reason": "Invalid token format"}
-
-    return {
-        "valid": True,
-        "user_id": f"user-{hash(token) % 10000}",
-        "timestamp": datetime.utcnow().isoformat(),
-    }
-
-@app.post("/auth/signup")
-async def signup(username: str, password: str):
-    """
-    Create new user account
-
-    Args:
-        username: New username
-        password: New password
-
-    Returns:
-        New user credentials with token
-    """
-
-    if not username or not password:
-        raise HTTPException(status_code=400, detail="Username and password required")
-
-    if len(password) < 6:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
-
-    # Simulate user creation
-    await asyncio.sleep(0.12)
-
-    import random
-    if random.random() < 0.01:
-        raise HTTPException(status_code=503, detail="Auth service temporarily unavailable")
-
-    user_id = f"user-{int(time.time())}"
-
-    return {
-        "status": "success",
-        "user_id": user_id,
-        "token": f"jwt-{int(time.time())}-{username}",
-        "expires_in": 3600,
-        "timestamp": datetime.utcnow().isoformat(),
-    }
-
-# ============================================================================
-# CHAOS INJECTION ENDPOINTS (for testing)
-# ============================================================================
-
-@app.post("/chaos/degrade")
-async def chaos_degrade(latency_ms: int = 500):
-    """
-    Simulate service degradation (add latency)
-    For testing chaos engineering detection
-    """
-    logger.warning(f"⚠️ Chaos: Adding {latency_ms}ms latency")
-    service_state["chaos_latency"] = latency_ms
-    return {"status": "degraded", "latency_ms": latency_ms}
-
-@app.post("/chaos/recover")
-async def chaos_recover():
-    """
-    Recover from chaos injection
-    """
-    logger.info("✅ Chaos: Recovering to normal")
-    service_state["chaos_latency"] = 0
-    return {"status": "recovered"}
-
-# ============================================================================
-# ROOT ENDPOINT
-# ============================================================================
-
-@app.get("/")
-def root():
-    """Root endpoint"""
-    return {
-        "service": service_state["name"],
-        "version": service_state["version"],
-        "docs": "/docs",
-        "health": "/health",
-        "metrics": "/metrics",
-    }
-
-# ============================================================================
-# STARTUP MESSAGE
-# ============================================================================
+async def _metrics_simulator():
+    """Simulate realistic CPU/mem usage so Prometheus has meaningful data."""
+    while True:
+        cpu_sim.set(random.uniform(15, 40))
+        mem_sim.set(random.uniform(60, 120))
+        await asyncio.sleep(5)
 
 if __name__ == "__main__":
     import uvicorn
-
-    logger.info("""
-╔════════════════════════════════════════════════════════════╗
-║         DARWIN Auth Service Starting                       ║
-║                                                            ║
-║  📊 Health Check:  http://localhost:8080/health           ║
-║  📈 Metrics:       http://localhost:8080/metrics           ║
-║  📖 API Docs:      http://localhost:8080/docs             ║
-║  🔗 Root:          http://localhost:8080/                 ║
-║                                                            ║
-║  Service: auth-service v1.0.0                             ║
-║  Target Application (Patient) for DARWIN                 ║
-╚════════════════════════════════════════════════════════════╝
-    """)
-
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=8080,
-        log_level="info"
-    )
+    uvicorn.run(app, host="0.0.0.0", port=PORT)

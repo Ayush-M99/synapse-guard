@@ -26,8 +26,10 @@ from pathlib import Path
 
 # ── Third-party ───────────────────────────────────────────────────────────────
 import matplotlib
-matplotlib.use("TkAgg")   # works on Windows without display server
+# WebAgg: serves plots in browser at http://localhost:8888 — works in WSL with no X server
+matplotlib.use("WebAgg")
 import matplotlib.pyplot as plt
+plt.rcParams["webagg.open_in_browser"] = False   # we’ll print the URL ourselves
 import matplotlib.patches as mpatches
 import matplotlib.animation as animation
 import networkx as nx
@@ -662,10 +664,12 @@ async def _inject_demo_data():
 def main():
     print("\n" + "=" * 60)
     print("  DARWIN  —  Autonomous Chaos Engineering Platform")
-    print("  Live Dashboard (Terminal + Matplotlib)")
+    print("  Live Dashboard (Terminal + Matplotlib WebAgg)")
     print("=" * 60)
-    print(f"  NATS:      {NATS_URL}")
-    print(f"  Refresh:   {REFRESH_HZ}s")
+    print(f"  NATS:        {NATS_URL}")
+    print(f"  Refresh:     {REFRESH_HZ}s")
+    print(f"  Graphs:      http://localhost:8888  ← open in browser")
+    print(f"  API Docs:    http://localhost:9000/docs")
     print("=" * 60 + "\n")
 
     # Initialize matplotlib
