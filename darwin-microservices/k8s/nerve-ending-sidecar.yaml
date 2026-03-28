@@ -1,0 +1,157 @@
+# Darwin Chaos Platform - Deployment with Nerve Ending Sidecars
+# This shows how to deploy services with the nerve ending monitoring sidecar
+
+---
+# Example: Auth Service with Nerve Ending Sidecar
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  namespace: darwin-microservices
+  labels:
+    app: auth-service
+    tier: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: auth-service
+  template:
+    metadata:
+      labels:
+        app: auth-service
+        tier: backend
+        chaos-target: "true"
+        nerve-ending: "enabled"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        # Main application container
+        - name: auth-service
+          image: darwin/auth-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: microservices-config
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+        
+        # Nerve Ending Sidecar
+        - name: nerve-ending
+          image: darwin/nerve-ending:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SERVICE_NAME
+              value: "auth-service"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: TARGET_SERVICE_URL
+              value: "http://localhost:8000"
+            - name: NATS_URL
+              value: "nats://nats.darwin-infra.svc.cluster.local:4222"
+            - name: CPU_THRESHOLD
+              value: "80"
+            - name: MEMORY_THRESHOLD
+              value: "85"
+            - name: ERROR_RATE_THRESHOLD
+              value: "0.1"
+            - name: LATENCY_THRESHOLD_MS
+              value: "1000"
+            - name: POLL_INTERVAL
+              value: "5"
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "25m"
+            limits:
+              memory: "64Mi"
+              cpu: "100m"
+
+---
+# Mutating Webhook Configuration for automatic sidecar injection
+# This allows automatic injection of nerve ending sidecars
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: nerve-ending-injector
+  labels:
+    app: darwin-chaos-platform
+webhooks:
+  - name: nerve-ending.darwin.io
+    clientConfig:
+      service:
+        name: nerve-ending-injector
+        namespace: darwin-system
+        path: /inject
+      caBundle: ${CA_BUNDLE}
+    rules:
+      - operations: ["CREATE"]
+        apiGroups: [""]
+        apiVersions: ["v1"]
+        resources: ["pods"]
+    namespaceSelector:
+      matchLabels:
+        nerve-ending-injection: enabled
+    objectSelector:
+      matchLabels:
+        nerve-ending: "enabled"
+    sideEffects: None
+    admissionReviewVersions: ["v1"]
+
+---
+# ConfigMap for Nerve Ending default configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nerve-ending-config
+  namespace: darwin-system
+data:
+  default-thresholds.yaml: |
+    cpu_threshold: 80
+    memory_threshold: 85
+    error_rate_threshold: 0.1
+    latency_threshold_ms: 1000
+    poll_interval: 5
+    alert_cooldown: 30
+  
+  service-overrides.yaml: |
+    payment-service:
+      cpu_threshold: 70
+      latency_threshold_ms: 500
+    
+    api-gateway:
+      error_rate_threshold: 0.05
+      latency_threshold_ms: 200

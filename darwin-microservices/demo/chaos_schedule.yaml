@@ -1,0 +1,119 @@
+# DARWIN Chaos Schedule — Demo Scenarios (§11)
+# Usage: Referenced by demo.py for scripted demonstrations
+
+scenarios:
+  scenario_1:
+    name: "Gen 1 → Immunity Acquired"
+    duration_seconds: 90
+    description: |
+      Demonstrate basic attack detection, recovery, and T-cell memory.
+      Attack, detect, recover (18s), then same attack again → reflex recovery (1.8s).
+    events:
+      - time: 0
+        type: virus_inject
+        strand: pod_crash_A
+        target: payment-service
+      - time: 5
+        type: detection
+        source: IF
+        confidence: 0.87
+      - time: 8
+        type: recovery_start
+        playbook: rec_pod_crash_A
+        state: KNOWN
+      - time: 26
+        type: recovery_complete
+        recovery_ms: 18200
+      - time: 35
+        type: virus_inject
+        strand: pod_crash_A
+        target: payment-service
+        note: "Same attack — tests T-cell memory"
+      - time: 37
+        type: tcell_hit
+        strand: pod_crash_A
+      - time: 39
+        type: recovery_complete
+        recovery_ms: 1800
+        note: "10x faster — immunity acquired!"
+
+  scenario_2:
+    name: "Gen 2: Timing Attack → LSTM Prediction"
+    duration_seconds: 60
+    description: |
+      Demonstrate the LSTM temporal prediction layer.
+      LSTM predicts timing attack 10 seconds before it lands.
+      Antibody pre-scales services. Attack lands but recovery is <1s.
+    events:
+      - time: 0
+        type: lstm_prediction
+        family: timing
+        target: payment-service
+        confidence: 0.78
+      - time: 2
+        type: preemptive_action
+        services: [payment-service, order-service]
+        action: prescale_replicas_3
+      - time: 10
+        type: virus_inject
+        strand: timing_A
+        target: payment-service
+        note: "Attack lands but service already scaled"
+      - time: 11
+        type: recovery_complete
+        recovery_ms: 800
+        state: PREDICTED
+
+  scenario_3:
+    name: "Gen 3: Unknown Strand → Honeypot Discovery"
+    duration_seconds: 120
+    description: |
+      Demonstrate the honeypot discovery mechanism.
+      Unknown attack (RF < 0.60), honeypot deployed, 10s observation,
+      new strand crystallized into Neo4j, immunity cached.
+    events:
+      - time: 0
+        type: virus_inject
+        strand: camouflage_A
+        target: auth-service
+      - time: 5
+        type: detection
+        source: CUSUM
+        confidence: 0.43
+        state: UNKNOWN
+      - time: 8
+        type: honeypot_deployed
+        target: auth-service
+      - time: 10
+        type: honeypot_observing
+        duration: 10
+      - time: 20
+        type: new_strand_discovered
+        strand: unknown_1711638400
+        family: resource
+        confidence: 0.71
+      - time: 25
+        type: recovery_complete
+        recovery_ms: 5200
+      - time: 40
+        type: virus_inject
+        strand: camouflage_A
+        target: auth-service
+        note: "Same attack again"
+      - time: 42
+        type: tcell_hit
+        note: "Now known — instant recovery"
+      - time: 44
+        type: recovery_complete
+        recovery_ms: 2100
+
+  full_demo:
+    name: "Complete 5-Minute Demo"
+    duration_seconds: 300
+    description: "Runs all three scenarios back-to-back"
+    sequence:
+      - scenario_1
+      - pause: 10
+      - scenario_2
+      - pause: 10
+      - scenario_3

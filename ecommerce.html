@@ -1,0 +1,1692 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NOVA — Premium Electronics</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0a0a0b;
+      --surface: #111113;
+      --card: #18181b;
+      --border: #27272a;
+      --border-2: #3f3f46;
+      --text: #fafafa;
+      --muted: #a1a1aa;
+      --dim: #52525b;
+      --accent: #e4c97e;
+      --accent-2: #c4a45a;
+      --green: #4ade80;
+      --red: #f87171;
+      --amber: #fbbf24;
+      --serif: 'Instrument Serif', Georgia, serif;
+      --sans: 'DM Sans', sans-serif;
+      --mono: 'DM Mono', monospace;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 15px;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    /* ── grain overlay ── */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 9999;
+      opacity: .4;
+    }
+
+    /* ── SERVICE STATUS BAR ── */
+    #status-bar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 8px 0;
+      font-size: 11px;
+      font-family: var(--mono);
+      overflow: hidden;
+    }
+
+    .status-inner {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 0 40px;
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      flex-wrap: wrap;
+    }
+
+    .status-label {
+      color: var(--dim);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      font-size: 10px;
+    }
+
+    .svc-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 10px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.02);
+      transition: all 0.4s;
+    }
+
+    .svc-pill.ok {
+      border-color: rgba(74, 222, 128, 0.3);
+    }
+
+    .svc-pill.down {
+      border-color: rgba(248, 113, 113, 0.4);
+      background: rgba(248, 113, 113, 0.05);
+      animation: flicker 0.5s infinite;
+    }
+
+    .svc-pill.slow {
+      border-color: rgba(251, 191, 36, 0.3);
+    }
+
+    @keyframes flicker {
+
+      0%,
+      100% {
+        opacity: 1
+      }
+
+      50% {
+        opacity: 0.6
+      }
+    }
+
+    .svc-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--dim);
+      transition: background 0.4s;
+    }
+
+    .svc-pill.ok .svc-dot {
+      background: var(--green);
+    }
+
+    .svc-pill.down .svc-dot {
+      background: var(--red);
+    }
+
+    .svc-pill.slow .svc-dot {
+      background: var(--amber);
+      animation: pulse-dot 1s infinite;
+    }
+
+    @keyframes pulse-dot {
+
+      0%,
+      100% {
+        opacity: 1
+      }
+
+      50% {
+        opacity: 0.3
+      }
+    }
+
+    .svc-name {
+      color: var(--muted);
+    }
+
+    .svc-pill.down .svc-name {
+      color: var(--red);
+    }
+
+    .svc-pill.slow .svc-name {
+      color: var(--amber);
+    }
+
+    /* ── NAV ── */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(10, 10, 11, 0.85);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-inner {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 0 40px;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      gap: 40px;
+    }
+
+    .logo {
+      font-family: var(--serif);
+      font-size: 24px;
+      letter-spacing: -0.5px;
+      color: var(--text);
+      text-decoration: none;
+      flex-shrink: 0;
+    }
+
+    .logo em {
+      color: var(--accent);
+      font-style: italic;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 32px;
+      list-style: none;
+      margin-left: 8px;
+    }
+
+    .nav-links a {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      transition: color 0.2s;
+      cursor: pointer;
+    }
+
+    .nav-links a:hover,
+    .nav-links a.active {
+      color: var(--text);
+    }
+
+    .nav-right {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .cart-btn {
+      position: relative;
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: var(--sans);
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+
+    .cart-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .cart-count {
+      position: absolute;
+      top: -6px;
+      right: -6px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #000;
+      font-size: 10px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transform: scale(0);
+      transition: all 0.3s;
+    }
+
+    .cart-count.show {
+      opacity: 1;
+      transform: scale(1);
+    }
+
+    .auth-btn {
+      background: var(--accent);
+      color: #000;
+      border: none;
+      padding: 8px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: var(--sans);
+      font-size: 14px;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+
+    .auth-btn:hover {
+      background: var(--accent-2);
+    }
+
+    .auth-btn.logged-in {
+      background: var(--surface);
+      color: var(--muted);
+      border: 1px solid var(--border);
+      font-weight: 400;
+    }
+
+    /* ── HERO ── */
+    .hero {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 80px 40px 60px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 60px;
+      align-items: center;
+    }
+
+    .hero-tag {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--accent);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      margin-bottom: 20px;
+    }
+
+    .hero h1 {
+      font-family: var(--serif);
+      font-size: clamp(42px, 5vw, 72px);
+      line-height: 1.05;
+      letter-spacing: -1px;
+      margin-bottom: 24px;
+    }
+
+    .hero h1 em {
+      color: var(--accent);
+      font-style: italic;
+    }
+
+    .hero p {
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.7;
+      max-width: 440px;
+      margin-bottom: 36px;
+    }
+
+    .hero-cta {
+      display: flex;
+      gap: 12px;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #000;
+      border: none;
+      padding: 13px 28px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: var(--sans);
+      font-size: 15px;
+      font-weight: 600;
+      transition: all 0.2s;
+      text-decoration: none;
+      display: inline-block;
+    }
+
+    .btn-primary:hover {
+      background: var(--accent-2);
+      transform: translateY(-1px);
+    }
+
+    .btn-ghost {
+      background: none;
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 13px 28px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: var(--sans);
+      font-size: 15px;
+      transition: all 0.2s;
+    }
+
+    .btn-ghost:hover {
+      border-color: var(--border-2);
+    }
+
+    .hero-visual {
+      position: relative;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+      aspect-ratio: 4/3;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .hero-product-img {
+      font-size: 120px;
+      filter: drop-shadow(0 20px 60px rgba(228, 201, 126, 0.15));
+      animation: float 6s ease-in-out infinite;
+    }
+
+    @keyframes float {
+
+      0%,
+      100% {
+        transform: translateY(0)
+      }
+
+      50% {
+        transform: translateY(-12px)
+      }
+    }
+
+    .hero-badge {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      background: rgba(228, 201, 126, 0.1);
+      border: 1px solid rgba(228, 201, 126, 0.3);
+      color: var(--accent);
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    /* ── SECTION ── */
+    .section {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 60px 40px;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      margin-bottom: 36px;
+    }
+
+    .section-title {
+      font-family: var(--serif);
+      font-size: 32px;
+      letter-spacing: -0.5px;
+    }
+
+    .section-link {
+      color: var(--accent);
+      font-size: 13px;
+      cursor: pointer;
+      text-decoration: none;
+    }
+
+    .section-link:hover {
+      text-decoration: underline;
+    }
+
+    /* ── PRODUCT GRID ── */
+    .product-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 20px;
+    }
+
+    .product-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      transition: all 0.3s;
+      cursor: pointer;
+      position: relative;
+    }
+
+    .product-card:hover {
+      border-color: var(--border-2);
+      transform: translateY(-3px);
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+    }
+
+    .product-img {
+      height: 200px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, var(--surface), var(--card));
+      font-size: 72px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .product-body {
+      padding: 20px;
+    }
+
+    .product-category {
+      font-size: 11px;
+      color: var(--dim);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+      font-family: var(--mono);
+    }
+
+    .product-name {
+      font-size: 16px;
+      font-weight: 500;
+      margin-bottom: 4px;
+    }
+
+    .product-desc {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 16px;
+      line-height: 1.5;
+    }
+
+    .product-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .product-price {
+      font-family: var(--serif);
+      font-size: 22px;
+    }
+
+    .product-price .currency {
+      font-size: 14px;
+      color: var(--muted);
+      vertical-align: super;
+    }
+
+    .add-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text);
+      width: 36px;
+      height: 36px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+
+    .add-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: rgba(228, 201, 126, 0.08);
+    }
+
+    .stock-badge {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.5px;
+      padding: 3px 8px;
+      border-radius: 4px;
+    }
+
+    .stock-badge.in {
+      background: rgba(74, 222, 128, 0.1);
+      color: var(--green);
+      border: 1px solid rgba(74, 222, 128, 0.2);
+    }
+
+    .stock-badge.low {
+      background: rgba(251, 191, 36, 0.1);
+      color: var(--amber);
+      border: 1px solid rgba(251, 191, 36, 0.2);
+    }
+
+    .stock-badge.out {
+      background: rgba(248, 113, 113, 0.1);
+      color: var(--red);
+      border: 1px solid rgba(248, 113, 113, 0.2);
+    }
+
+    /* ── CART PANEL ── */
+    .cart-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.6);
+      z-index: 200;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s;
+    }
+
+    .cart-overlay.open {
+      opacity: 1;
+      pointer-events: all;
+    }
+
+    .cart-panel {
+      position: fixed;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      width: 420px;
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      z-index: 201;
+      transform: translateX(100%);
+      transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .cart-panel.open {
+      transform: translateX(0);
+    }
+
+    .cart-header {
+      padding: 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .cart-title {
+      font-family: var(--serif);
+      font-size: 22px;
+    }
+
+    .close-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      width: 32px;
+      height: 32px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+
+    .close-btn:hover {
+      border-color: var(--red);
+      color: var(--red);
+    }
+
+    .cart-items {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 24px;
+    }
+
+    .cart-empty {
+      color: var(--dim);
+      text-align: center;
+      padding: 60px 0;
+      font-size: 14px;
+    }
+
+    .cart-item {
+      display: flex;
+      gap: 14px;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .cart-item-icon {
+      font-size: 32px;
+      width: 52px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--card);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .cart-item-info {
+      flex: 1;
+    }
+
+    .cart-item-name {
+      font-size: 14px;
+      font-weight: 500;
+      margin-bottom: 4px;
+    }
+
+    .cart-item-price {
+      font-family: var(--mono);
+      font-size: 13px;
+      color: var(--accent);
+    }
+
+    .cart-item-qty {
+      font-size: 12px;
+      color: var(--dim);
+    }
+
+    .cart-item-remove {
+      background: none;
+      border: none;
+      color: var(--dim);
+      cursor: pointer;
+      font-size: 16px;
+      padding: 4px;
+      transition: color 0.2s;
+    }
+
+    .cart-item-remove:hover {
+      color: var(--red);
+    }
+
+    .cart-footer {
+      padding: 20px 24px;
+      border-top: 1px solid var(--border);
+    }
+
+    .cart-total {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 16px;
+    }
+
+    .cart-total-label {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .cart-total-value {
+      font-family: var(--serif);
+      font-size: 28px;
+    }
+
+    .checkout-btn {
+      width: 100%;
+      padding: 14px;
+      background: var(--accent);
+      color: #000;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-family: var(--sans);
+      font-size: 16px;
+      font-weight: 700;
+      transition: all 0.2s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .checkout-btn:hover:not(:disabled) {
+      background: var(--accent-2);
+    }
+
+    .checkout-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* ── AUTH MODAL ── */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.7);
+      z-index: 300;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-overlay.open {
+      opacity: 1;
+      pointer-events: all;
+    }
+
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 40px;
+      width: 400px;
+      max-width: 90vw;
+      transform: translateY(20px) scale(0.97);
+      transition: all 0.25s;
+    }
+
+    .modal-overlay.open .modal {
+      transform: none;
+    }
+
+    .modal h2 {
+      font-family: var(--serif);
+      font-size: 28px;
+      margin-bottom: 8px;
+    }
+
+    .modal p {
+      color: var(--muted);
+      font-size: 14px;
+      margin-bottom: 28px;
+    }
+
+    .input-group {
+      margin-bottom: 16px;
+    }
+
+    .input-group label {
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 6px;
+      font-family: var(--mono);
+      letter-spacing: 0.5px;
+    }
+
+    .input-group input {
+      width: 100%;
+      padding: 11px 14px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .input-group input:focus {
+      border-color: var(--accent);
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 24px;
+    }
+
+    .modal-actions .btn-primary {
+      flex: 1;
+      text-align: center;
+      padding: 12px;
+    }
+
+    .modal-toggle {
+      font-size: 13px;
+      color: var(--muted);
+      text-align: center;
+      margin-top: 16px;
+    }
+
+    .modal-toggle span {
+      color: var(--accent);
+      cursor: pointer;
+    }
+
+    .modal-toggle span:hover {
+      text-decoration: underline;
+    }
+
+    /* ── TOAST ── */
+    #toast-container {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 400;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .toast {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 18px;
+      font-size: 14px;
+      min-width: 280px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      transform: translateX(120%);
+      transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+
+    .toast.show {
+      transform: none;
+    }
+
+    .toast.success {
+      border-color: rgba(74, 222, 128, 0.3);
+    }
+
+    .toast.error {
+      border-color: rgba(248, 113, 113, 0.3);
+    }
+
+    .toast.warning {
+      border-color: rgba(251, 191, 36, 0.3);
+    }
+
+    .toast-icon {
+      font-size: 18px;
+    }
+
+    /* ── SERVICE DOWN BANNER ── */
+    .down-banner {
+      background: rgba(248, 113, 113, 0.08);
+      border: 1px solid rgba(248, 113, 113, 0.3);
+      border-radius: 8px;
+      padding: 14px 18px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+      font-size: 14px;
+      animation: fadeIn 0.3s ease;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(-8px)
+      }
+
+      to {
+        opacity: 1;
+        transform: none
+      }
+    }
+
+    .down-banner .icon {
+      font-size: 20px;
+    }
+
+    .down-banner strong {
+      color: var(--red);
+    }
+
+    /* ── FEATURES ── */
+    .features {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      margin-bottom: 60px;
+    }
+
+    .feature {
+      background: var(--card);
+      padding: 32px;
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+    }
+
+    .feature-icon {
+      font-size: 28px;
+      flex-shrink: 0;
+    }
+
+    .feature-title {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    .feature-desc {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    /* ── FOOTER ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 40px;
+      max-width: 1400px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .footer-logo {
+      font-family: var(--serif);
+      font-size: 18px;
+    }
+
+    .footer-logo em {
+      color: var(--accent);
+      font-style: italic;
+    }
+
+    .footer-note {
+      font-size: 12px;
+      color: var(--dim);
+      font-family: var(--mono);
+    }
+
+    /* ── DEGRADED STATES (when services are down) ── */
+    .service-error-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(10, 10, 11, 0.85);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      color: var(--red);
+      font-family: var(--mono);
+      border-radius: 12px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s;
+      text-align: center;
+      gap: 8px;
+      flex-direction: column;
+    }
+
+    .service-error-overlay.show {
+      opacity: 1;
+      pointer-events: all;
+    }
+
+    /* responsive */
+    @media (max-width: 900px) {
+      .hero {
+        grid-template-columns: 1fr;
+      }
+
+      .hero-visual {
+        display: none;
+      }
+
+      .features {
+        grid-template-columns: 1fr;
+      }
+
+      .cart-panel {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- ── SERVICE STATUS BAR ── -->
+  <div id="status-bar">
+    <div class="status-inner">
+      <span class="status-label">system</span>
+      <div class="svc-pill" id="pill-auth">
+        <span class="svc-dot"></span>
+        <span class="svc-name">auth</span>
+      </div>
+      <div class="svc-pill" id="pill-payment">
+        <span class="svc-dot"></span>
+        <span class="svc-name">payment</span>
+      </div>
+      <div class="svc-pill" id="pill-order">
+        <span class="svc-dot"></span>
+        <span class="svc-name">orders</span>
+      </div>
+      <div class="svc-pill" id="pill-inventory">
+        <span class="svc-dot"></span>
+        <span class="svc-name">inventory</span>
+      </div>
+      <div class="svc-pill" id="pill-gateway">
+        <span class="svc-dot"></span>
+        <span class="svc-name">gateway</span>
+      </div>
+      <div class="svc-pill" id="pill-notification">
+        <span class="svc-dot"></span>
+        <span class="svc-name">notifications</span>
+      </div>
+      <span style="margin-left:auto;color:var(--dim)" id="last-check"></span>
+    </div>
+  </div>
+
+  <!-- ── NAV ── -->
+  <nav>
+    <div class="nav-inner">
+      <a class="logo" href="#">NO<em>VA</em></a>
+      <ul class="nav-links">
+        <li><a class="active">Shop</a></li>
+        <li><a onclick="scrollToProducts()">New Arrivals</a></li>
+        <li><a>Collections</a></li>
+        <li><a>About</a></li>
+      </ul>
+      <div class="nav-right">
+        <button class="cart-btn" onclick="toggleCart()">
+          🛒 Cart
+          <span class="cart-count" id="cart-count">0</span>
+        </button>
+        <button class="auth-btn" id="auth-btn" onclick="openAuth()">Sign In</button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ── HERO ── -->
+  <section class="hero">
+    <div class="hero-text">
+      <div class="hero-tag">New Season — 2026 Collection</div>
+      <h1>Precision<br>Engineering,<br><em>Redefined.</em></h1>
+      <p>Premium electronics crafted for those who demand perfection. Every circuit, every pixel — engineered to outlast
+        expectations.</p>
+      <div class="hero-cta">
+        <button class="btn-primary" onclick="scrollToProducts()">Shop Now</button>
+        <button class="btn-ghost">View Lookbook</button>
+      </div>
+    </div>
+    <div class="hero-visual">
+      <div class="hero-product-img">💻</div>
+      <div class="hero-badge">✦ NEW ARRIVAL</div>
+    </div>
+  </section>
+
+  <!-- ── PRODUCTS ── -->
+  <section class="section" id="products">
+    <div class="section-header">
+      <h2 class="section-title">Featured Products</h2>
+      <a class="section-link">View all →</a>
+    </div>
+    <div id="service-banners"></div>
+    <div class="product-grid" id="product-grid">
+      <!-- populated by JS -->
+    </div>
+  </section>
+
+  <!-- ── FEATURES ── -->
+  <section class="section">
+    <div class="features">
+      <div class="feature">
+        <div class="feature-icon">🛡️</div>
+        <div>
+          <div class="feature-title">2-Year Warranty</div>
+          <div class="feature-desc">Every product backed by our comprehensive hardware guarantee.</div>
+        </div>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">⚡</div>
+        <div>
+          <div class="feature-title">Same-Day Delivery</div>
+          <div class="feature-desc">Order before 2pm for guaranteed delivery by end of day.</div>
+        </div>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">↩️</div>
+        <div>
+          <div class="feature-title">30-Day Returns</div>
+          <div class="feature-desc">Not satisfied? Return anything within 30 days, no questions.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── FOOTER ── -->
+  <footer>
+    <div class="footer-logo">NO<em>VA</em> Electronics</div>
+    <div class="footer-note">powered by darwin microservices · 6 services · kubernetes</div>
+  </footer>
+
+  <!-- ── CART PANEL ── -->
+  <div class="cart-overlay" id="cart-overlay" onclick="toggleCart()"></div>
+  <div class="cart-panel" id="cart-panel">
+    <div class="cart-header">
+      <div class="cart-title">Your Cart</div>
+      <button class="close-btn" onclick="toggleCart()">✕</button>
+    </div>
+    <div class="cart-items" id="cart-items">
+      <div class="cart-empty">Your cart is empty</div>
+    </div>
+    <div class="cart-footer">
+      <div id="checkout-banners"></div>
+      <div class="cart-total">
+        <span class="cart-total-label">Total</span>
+        <span class="cart-total-value" id="cart-total">$0</span>
+      </div>
+      <button class="checkout-btn" id="checkout-btn" onclick="checkout()">
+        Checkout →
+      </button>
+    </div>
+  </div>
+
+  <!-- ── AUTH MODAL ── -->
+  <div class="modal-overlay" id="auth-modal" onclick="closeAuthIfOutside(event)">
+    <div class="modal">
+      <h2 id="modal-title">Welcome back</h2>
+      <p id="modal-sub">Sign in to your NOVA account</p>
+      <div id="auth-banners"></div>
+      <div class="input-group">
+        <label>USERNAME</label>
+        <input type="text" id="username-input" placeholder="your username" />
+      </div>
+      <div class="input-group">
+        <label>PASSWORD</label>
+        <input type="password" id="password-input" placeholder="••••••••" />
+      </div>
+      <div class="modal-actions">
+        <button class="btn-primary" onclick="submitAuth()" id="auth-submit-btn">Sign In</button>
+        <button class="btn-ghost" onclick="closeAuth()">Cancel</button>
+      </div>
+      <div class="modal-toggle">
+        <span id="modal-toggle-text">Don't have an account? <span onclick="toggleAuthMode()">Sign Up</span></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── TOAST ── -->
+  <div id="toast-container"></div>
+
+  <script>
+    // ── PRODUCT DATA ──────────────────────────────────────────────────────────────
+    const PRODUCTS = [
+      { id: 'item_001', name: 'ProBook X1', category: 'Laptops', icon: '💻', price: 1299, desc: '16" OLED, M3 Ultra chip, 36GB RAM. The machine for creators who refuse compromise.', stock: 0 },
+      { id: 'item_002', name: 'AuraPhone 15', category: 'Phones', icon: '📱', price: 999, desc: 'Titanium frame, periscope camera system, 7-day battery. Rethinking what a phone can be.', stock: 0 },
+      { id: 'item_003', name: 'StudioBuds Pro', category: 'Audio', icon: '🎧', price: 349, desc: '40mm planar drivers, ANC, 60hr battery. Hear what the artist intended.', stock: 0 },
+      { id: 'item_004', name: 'NexWatch Ultra', category: 'Wearables', icon: '⌚', price: 599, desc: 'Always-on AMOLED, ECG, SpO2, 18-day battery. Your health, quantified.', stock: 0 },
+      { id: 'item_005', name: 'Canvas 4K', category: 'Displays', icon: '🖥️', price: 799, desc: '32" IPS, 144Hz, HDR1000, factory calibrated. Every pixel, perfect.', stock: 0 },
+      { id: 'item_006', name: 'KeyForge TKL', category: 'Peripherals', icon: '⌨️', price: 189, desc: 'Hall-effect switches, aluminum frame, wireless. The last keyboard you will ever need.', stock: 999 },
+    ];
+
+    // ── SERVICE CONFIG ────────────────────────────────────────────────────────────
+    const SVCS = {
+      auth: { url: 'http://localhost:8000', id: 'auth' },
+      payment: { url: 'http://localhost:8001', id: 'payment' },
+      order: { url: 'http://localhost:8002', id: 'order' },
+      inventory: { url: 'http://localhost:8003', id: 'inventory' },
+      gateway: { url: 'http://localhost:8080', id: 'gateway' },
+      notification: { url: 'http://localhost:8004', id: 'notification' },
+    };
+
+    // ── STATE ─────────────────────────────────────────────────────────────────────
+    let cart = [];
+    let user = null;
+    let authMode = 'login';
+    let svcStatus = { auth: 'unknown', payment: 'unknown', order: 'unknown', inventory: 'unknown', gateway: 'unknown', notification: 'unknown' };
+    let stockData = {};
+
+    // ── INIT ──────────────────────────────────────────────────────────────────────
+    window.addEventListener('DOMContentLoaded', async () => {
+      renderProducts();
+      connectToDarwinBackend();
+      // We fall back to the live Darwin WebSocket instead of standard polling
+      // to ensure perfect sync with the dashboard's visual demo!
+      setInterval(loadStock, 10000);
+    });
+
+    // ── DARWIN WEBSOCKET INTEGRATION ──────────────────────────────────────────────
+    function connectToDarwinBackend() {
+      const ws = new WebSocket('ws://localhost:8010/ws');
+
+      ws.onopen = () => {
+        console.log("Connected to Darwin Chaos Backend!");
+        document.getElementById('last-check').textContent = 'DARWIN LIVE SYNC';
+      };
+
+      ws.onmessage = (evt) => {
+        try {
+          const data = JSON.parse(evt.data);
+
+          // 1. Map initial states
+          if (data.event === 'initial_state') {
+            const services = data.services || {};
+            for (const [key, status] of Object.entries(services)) {
+              const mapKey = key.replace('-service', '').replace('api-', '');
+              if (svcStatus[mapKey]) {
+                svcStatus[mapKey] = status === 'healthy' ? 'ok' : 'down';
+                updatePill(mapKey);
+              }
+            }
+            updateServiceBanners();
+            renderProducts();
+          }
+
+          // 2. React to Live Chaos Events
+          if (data.service && data.event !== 'health_update') {
+            const mapKey = data.service.replace('-service', '').replace('api-', '');
+            if (svcStatus[mapKey] !== undefined) {
+              if (data.event === 'attack_detected') {
+                svcStatus[mapKey] = 'down';
+                updatePill(mapKey);
+                // Call the app's existing toast popup
+                if (typeof toast !== 'undefined') toast(`⚠️ ${data.service} is offline (Virus Detected!)`, 'error');
+              } else if (data.event === 'recovery_complete') {
+                svcStatus[mapKey] = 'ok';
+                updatePill(mapKey);
+                const rt = data.recovery_time_ms || data.data?.recovery_time_ms || '';
+                if (typeof toast !== 'undefined') toast(`✅ ${data.service} recovered dynamically in ${rt}ms!`, 'success');
+              } else if (data.event === 'preemptive_action') {
+                if (typeof toast !== 'undefined') toast(`🛡️ Preemptive defense engaged for ${data.service}!`, 'success');
+              } else if (data.event === 'honeypot_deployed') {
+                if (typeof toast !== 'undefined') toast(`🍯 Honeypot deployed to observe ${data.service}!`, 'warning');
+              }
+
+              updateServiceBanners();
+              renderProducts();
+            }
+          }
+        } catch (e) { }
+      };
+
+      ws.onclose = () => {
+        document.getElementById('last-check').textContent = 'SYNC DISCONNECTED';
+        setTimeout(connectToDarwinBackend, 3000);
+      };
+    }
+
+    // ── SERVICE HEALTH ────────────────────────────────────────────────────────────
+    async function checkAllServices() {
+      const checks = Object.entries(SVCS).map(async ([key, svc]) => {
+        try {
+          const r = await fetch(`${svc.url}/health`, { signal: AbortSignal.timeout(3000) });
+          const prev = svcStatus[key];
+          svcStatus[key] = r.ok ? 'ok' : 'error';
+          if (prev !== 'unknown' && prev === 'ok' && svcStatus[key] === 'error') {
+            toast(`⚠️ ${key} service is DOWN`, 'error');
+          }
+          if (prev === 'error' && svcStatus[key] === 'ok') {
+            toast(`✅ ${key} service recovered`, 'success');
+          }
+        } catch {
+          svcStatus[key] = 'down';
+        }
+        updatePill(key);
+      });
+      await Promise.all(checks);
+      document.getElementById('last-check').textContent =
+        'checked ' + new Date().toLocaleTimeString('en-GB');
+      updateServiceBanners();
+    }
+
+    function updatePill(key) {
+      const pill = document.getElementById(`pill-${key}`);
+      if (!pill) return;
+      const s = svcStatus[key];
+      pill.className = `svc-pill ${s === 'ok' ? 'ok' : s === 'down' || s === 'error' ? 'down' : ''}`;
+    }
+
+    function updateServiceBanners() {
+      const banners = document.getElementById('service-banners');
+      const down = Object.entries(svcStatus).filter(([, v]) => v === 'down' || v === 'error');
+      if (down.length === 0) { banners.innerHTML = ''; return; }
+      banners.innerHTML = down.map(([k]) => `
+    <div class="down-banner">
+      <span class="icon">🔴</span>
+      <span><strong>${k} service is offline.</strong> Some features may be unavailable. DARWIN is restoring service...</span>
+    </div>`).join('');
+    }
+
+    // ── STOCK ─────────────────────────────────────────────────────────────────────
+    async function loadStock() {
+      if (svcStatus.inventory !== 'ok') {
+        PRODUCTS.forEach(p => { stockData[p.id] = null; });
+        renderProducts();
+        return;
+      }
+      try {
+        const r = await fetch(`${SVCS.inventory.url}/stock`, { signal: AbortSignal.timeout(3000) });
+        if (r.ok) {
+          stockData = await r.json();
+          PRODUCTS.forEach(p => {
+            if (!(p.id in stockData)) stockData[p.id] = p.stock;
+          });
+        }
+      } catch {
+        PRODUCTS.forEach(p => { stockData[p.id] = null; });
+      }
+      renderProducts();
+    }
+
+    // ── RENDER PRODUCTS ───────────────────────────────────────────────────────────
+    function renderProducts() {
+      const grid = document.getElementById('product-grid');
+      grid.innerHTML = PRODUCTS.map(p => {
+        const stock = stockData[p.id];
+        const invDown = svcStatus.inventory === 'down' || svcStatus.inventory === 'error';
+        let badgeClass, badgeText;
+        if (invDown || stock === null) {
+          badgeClass = 'out'; badgeText = 'unavailable';
+        } else if (stock === 0) {
+          badgeClass = 'out'; badgeText = 'out of stock';
+        } else if (stock < 10) {
+          badgeClass = 'low'; badgeText = `only ${stock} left`;
+        } else {
+          badgeClass = 'in'; badgeText = 'in stock';
+        }
+        const canAdd = !invDown && stock !== null && stock > 0;
+
+        return `
+    <div class="product-card" onclick="productClick(event, '${p.id}')">
+      <span class="stock-badge ${badgeClass}">${badgeText}</span>
+      <div class="product-img">${p.icon}</div>
+      <div class="product-body">
+        <div class="product-category">${p.category}</div>
+        <div class="product-name">${p.name}</div>
+        <div class="product-desc">${p.desc}</div>
+        <div class="product-footer">
+          <div class="product-price"><span class="currency">$</span>${p.price.toLocaleString()}</div>
+          <button class="add-btn" onclick="addToCart(event,'${p.id}')"
+            ${canAdd ? '' : 'disabled style="opacity:0.3;cursor:not-allowed"'}
+            title="${canAdd ? 'Add to cart' : badgeText}">+</button>
+        </div>
+      </div>
+      ${invDown ? `<div class="service-error-overlay show">🔴<span>Inventory service offline</span></div>` : ''}
+    </div>`;
+      }).join('');
+    }
+
+    function productClick(e, id) {
+      if (e.target.classList.contains('add-btn')) return;
+    }
+
+    // ── CART ──────────────────────────────────────────────────────────────────────
+    function addToCart(e, productId) {
+      e.stopPropagation();
+      const p = PRODUCTS.find(x => x.id === productId);
+      if (!p) return;
+      const existing = cart.find(x => x.id === productId);
+      if (existing) {
+        existing.qty++;
+      } else {
+        cart.push({ ...p, qty: 1 });
+      }
+      updateCart();
+      toast(`Added ${p.name} to cart`, 'success');
+
+      // Reserve stock in inventory service
+      if (svcStatus.inventory === 'ok') {
+        fetch(`${SVCS.inventory.url}/stock/${productId}/reserve`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ item_id: productId, quantity: 1 })
+        }).then(() => loadStock()).catch(() => { });
+      }
+    }
+
+    function removeFromCart(id) {
+      cart = cart.filter(x => x.id !== id);
+      updateCart();
+    }
+
+    function updateCart() {
+      const total = cart.reduce((s, x) => s + x.price * x.qty, 0);
+      const count = cart.reduce((s, x) => s + x.qty, 0);
+
+      const countEl = document.getElementById('cart-count');
+      countEl.textContent = count;
+      countEl.classList.toggle('show', count > 0);
+
+      document.getElementById('cart-total').textContent = `$${total.toLocaleString()}`;
+
+      const itemsEl = document.getElementById('cart-items');
+      if (cart.length === 0) {
+        itemsEl.innerHTML = '<div class="cart-empty">Your cart is empty</div>';
+      } else {
+        itemsEl.innerHTML = cart.map(item => `
+      <div class="cart-item">
+        <div class="cart-item-icon">${item.icon}</div>
+        <div class="cart-item-info">
+          <div class="cart-item-name">${item.name}</div>
+          <div class="cart-item-price">$${item.price.toLocaleString()}</div>
+          <div class="cart-item-qty">Qty: ${item.qty}</div>
+        </div>
+        <button class="cart-item-remove" onclick="removeFromCart('${item.id}')">✕</button>
+      </div>`).join('');
+      }
+    }
+
+    function toggleCart() {
+      const panel = document.getElementById('cart-panel');
+      const overlay = document.getElementById('cart-overlay');
+      panel.classList.toggle('open');
+      overlay.classList.toggle('open');
+    }
+
+    // ── CHECKOUT ──────────────────────────────────────────────────────────────────
+    async function checkout() {
+      if (cart.length === 0) { toast('Your cart is empty', 'warning'); return; }
+      if (!user) { openAuth(); toast('Please sign in to checkout', 'warning'); return; }
+
+      const btn = document.getElementById('checkout-btn');
+      const banners = document.getElementById('checkout-banners');
+
+      // Check payment service
+      if (svcStatus.payment !== 'ok') {
+        banners.innerHTML = `<div class="down-banner" style="margin-bottom:12px">
+      <span class="icon">🔴</span>
+      <span><strong>Payment service is offline.</strong> Cannot process order. DARWIN is restoring...</span>
+    </div>`;
+        toast('Payment service is down — cannot checkout', 'error');
+        return;
+      }
+
+      banners.innerHTML = '';
+      btn.disabled = true;
+      btn.textContent = 'Processing…';
+
+      try {
+        const total = cart.reduce((s, x) => s + x.price * x.qty, 0);
+
+        // 1. Create order
+        let orderId = `order-${Date.now()}`;
+        if (svcStatus.order === 'ok') {
+          const orderResp = await fetch(`${SVCS.order.url}/orders`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              user_id: user,
+              item_id: cart[0].id,
+              quantity: cart[0].qty,
+              unit_price: cart[0].price,
+            })
+          });
+          if (orderResp.ok) {
+            const orderData = await orderResp.json();
+            orderId = orderData.order_id;
+          }
+        }
+
+        // 2. Process payment
+        const payResp = await fetch(`${SVCS.payment.url}/pay`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ order_id: orderId, amount: total, currency: 'USD' })
+        });
+
+        if (!payResp.ok) throw new Error('Payment failed');
+
+        // 3. Send notification (fire and forget)
+        if (svcStatus.notification === 'ok') {
+          fetch(`${SVCS.notification.url}/notify`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              recipient: user,
+              channel: 'email',
+              message: `Order confirmed! Total: $${total.toLocaleString()}`,
+              priority: 'high'
+            })
+          }).catch(() => { });
+        }
+
+        // Success
+        cart = [];
+        updateCart();
+        toggleCart();
+        toast(`🎉 Order placed! $${total.toLocaleString()} charged successfully`, 'success');
+
+      } catch (err) {
+        toast(`Checkout failed: ${err.message}`, 'error');
+        banners.innerHTML = `<div class="down-banner" style="margin-bottom:12px">
+      <span class="icon">🔴</span>
+      <span><strong>Checkout failed.</strong> ${err.message}. Please try again.</span>
+    </div>`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Checkout →';
+      }
+    }
+
+    // ── AUTH ──────────────────────────────────────────────────────────────────────
+    function openAuth() {
+      document.getElementById('auth-modal').classList.add('open');
+      setTimeout(() => document.getElementById('username-input').focus(), 100);
+    }
+    function closeAuth() {
+      document.getElementById('auth-modal').classList.remove('open');
+    }
+    function closeAuthIfOutside(e) {
+      if (e.target === document.getElementById('auth-modal')) closeAuth();
+    }
+
+    function toggleAuthMode() {
+      authMode = authMode === 'login' ? 'signup' : 'login';
+      document.getElementById('modal-title').textContent = authMode === 'login' ? 'Welcome back' : 'Create account';
+      document.getElementById('modal-sub').textContent = authMode === 'login' ? 'Sign in to your NOVA account' : 'Join NOVA for exclusive benefits';
+      document.getElementById('auth-submit-btn').textContent = authMode === 'login' ? 'Sign In' : 'Sign Up';
+      document.getElementById('modal-toggle-text').innerHTML = authMode === 'login'
+        ? `Don't have an account? <span onclick="toggleAuthMode()">Sign Up</span>`
+        : `Already have an account? <span onclick="toggleAuthMode()">Sign In</span>`;
+    }
+
+    async function submitAuth() {
+      const username = document.getElementById('username-input').value.trim();
+      const password = document.getElementById('password-input').value;
+      if (!username || !password) { toast('Please fill in all fields', 'warning'); return; }
+
+      const banners = document.getElementById('auth-banners');
+      const btn = document.getElementById('auth-submit-btn');
+
+      if (svcStatus.auth !== 'ok') {
+        banners.innerHTML = `<div class="down-banner" style="margin-bottom:16px">
+      <span class="icon">🔴</span>
+      <span><strong>Auth service is offline.</strong> Cannot sign in. DARWIN is restoring...</span>
+    </div>`;
+        toast('Authentication service is down', 'error');
+        return;
+      }
+
+      banners.innerHTML = '';
+      btn.disabled = true;
+      btn.textContent = authMode === 'login' ? 'Signing in…' : 'Creating account…';
+
+      try {
+        const endpoint = authMode === 'login' ? '/login' : '/signup';
+        const resp = await fetch(`${SVCS.auth.url}${endpoint}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+
+        if (!resp.ok) {
+          const err = await resp.json();
+          throw new Error(err.detail || 'Authentication failed');
+        }
+
+        user = username;
+        const authBtnEl = document.getElementById('auth-btn');
+        authBtnEl.textContent = `👤 ${username}`;
+        authBtnEl.className = 'auth-btn logged-in';
+        authBtnEl.onclick = logout;
+
+        closeAuth();
+        toast(`Welcome, ${username}! 👋`, 'success');
+
+        // Send welcome notification
+        if (svcStatus.notification === 'ok') {
+          fetch(`${SVCS.notification.url}/notify`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ recipient: username, channel: 'email', message: 'Welcome to NOVA!', priority: 'normal' })
+          }).catch(() => { });
+        }
+
+      } catch (err) {
+        toast(err.message, 'error');
+        banners.innerHTML = `<div class="down-banner" style="margin-bottom:16px">
+      <span class="icon">⚠️</span><span>${err.message}</span>
+    </div>`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = authMode === 'login' ? 'Sign In' : 'Sign Up';
+      }
+    }
+
+    function logout() {
+      user = null;
+      const btn = document.getElementById('auth-btn');
+      btn.textContent = 'Sign In';
+      btn.className = 'auth-btn';
+      btn.onclick = openAuth;
+      toast('Signed out', 'success');
+    }
+
+    // ── TOAST ─────────────────────────────────────────────────────────────────────
+    function toast(msg, type = 'success') {
+      const icons = { success: '✅', error: '🔴', warning: '⚠️' };
+      const el = document.createElement('div');
+      el.className = `toast ${type}`;
+      el.innerHTML = `<span class="toast-icon">${icons[type]}</span><span>${msg}</span>`;
+      document.getElementById('toast-container').appendChild(el);
+      requestAnimationFrame(() => { requestAnimationFrame(() => { el.classList.add('show'); }); });
+      setTimeout(() => {
+        el.classList.remove('show');
+        setTimeout(() => el.remove(), 400);
+      }, 4000);
+    }
+
+    // ── HELPERS ───────────────────────────────────────────────────────────────────
+    function scrollToProducts() {
+      document.getElementById('products').scrollIntoView({ behavior: 'smooth' });
+    }
+  </script>
+</body>
+
+</html>

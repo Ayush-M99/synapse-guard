@@ -1,0 +1,287 @@
+# Darwin Chaos Platform - Local Development Docker Compose
+# Combines microservices with chaos platform infrastructure
+#
+# Usage:
+#   docker-compose up -d                    # Start all services
+#   docker-compose up -d --scale order-service=3  # Scale specific service
+#   docker-compose logs -f auth-service     # View logs
+#   docker-compose down -v                  # Stop and clean up
+
+version: '3.8'
+
+services:
+  # ============================================
+  # INFRASTRUCTURE SERVICES
+  # ============================================
+  
+  postgres:
+    image: postgres:15-alpine
+    container_name: darwin-postgres
+    environment:
+      POSTGRES_USER: chaos
+      POSTGRES_PASSWORD: chaospassword
+      POSTGRES_DB: chaos_dna
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chaos -d chaos_dna"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - darwin-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: darwin-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - darwin-network
+
+  neo4j:
+    image: neo4j:5-community
+    container_name: darwin-neo4j
+    environment:
+      NEO4J_AUTH: neo4j/chaospassword
+      NEO4J_PLUGINS: '["apoc"]'
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:7474 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - darwin-network
+
+  nats:
+    image: nats:2.10-alpine
+    container_name: darwin-nats
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    command: ["--jetstream", "--http_port", "8222"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8222/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - darwin-network
+
+  # ============================================
+  # TARGET MICROSERVICES
+  # ============================================
+  
+  auth-service:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    container_name: darwin-auth-service
+    environment:
+      DATABASE_URL: postgresql://chaos:chaospassword@postgres:5432/chaos_dna
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: darwin-chaos-jwt-secret
+      JWT_ALGORITHM: HS256
+      JWT_EXPIRATION: 3600
+    ports:
+      - "8001:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import httpx; httpx.get('http://localhost:8000/health')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - darwin-network
+    labels:
+      - "darwin.chaos.target=true"
+      - "darwin.service.type=auth"
+
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    container_name: darwin-api-gateway
+    environment:
+      AUTH_SERVICE_URL: http://auth-service:8000
+      ORDER_SERVICE_URL: http://order-service:8000
+      PAYMENT_SERVICE_URL: http://payment-service:8000
+      INVENTORY_SERVICE_URL: http://inventory-service:8000
+      NOTIFICATION_SERVICE_URL: http://notification-service:8000
+      RATE_LIMIT_REQUESTS: 100
+      RATE_LIMIT_WINDOW: 60
+    ports:
+      - "8000:8000"
+    depends_on:
+      - auth-service
+      - order-service
+      - payment-service
+      - inventory-service
+      - notification-service
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import httpx; httpx.get('http://localhost:8000/health')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - darwin-network
+    labels:
+      - "darwin.chaos.target=true"
+      - "darwin.service.type=gateway"
+
+  order-service:
+    build:
+      context: ./order-service
+      dockerfile: Dockerfile
+    container_name: darwin-order-service
+    environment:
+      DATABASE_URL: postgresql://chaos:chaospassword@postgres:5432/chaos_dna
+      AUTH_SERVICE_URL: http://auth-service:8000
+      PAYMENT_SERVICE_URL: http://payment-service:8000
+      INVENTORY_SERVICE_URL: http://inventory-service:8000
+      NOTIFICATION_SERVICE_URL: http://notification-service:8000
+    ports:
+      - "8002:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import httpx; httpx.get('http://localhost:8000/health')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - darwin-network
+    labels:
+      - "darwin.chaos.target=true"
+      - "darwin.service.type=order"
+
+  payment-service:
+    build:
+      context: ./payment-service
+      dockerfile: Dockerfile
+    container_name: darwin-payment-service
+    environment:
+      DATABASE_URL: postgresql://chaos:chaospassword@postgres:5432/chaos_dna
+      PAYMENT_FAILURE_RATE: 0.1
+    ports:
+      - "8003:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import httpx; httpx.get('http://localhost:8000/health')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - darwin-network
+    labels:
+      - "darwin.chaos.target=true"
+      - "darwin.service.type=payment"
+
+  inventory-service:
+    build:
+      context: ./inventory-service
+      dockerfile: Dockerfile
+    container_name: darwin-inventory-service
+    environment:
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "8004:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import httpx; httpx.get('http://localhost:8000/health')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - darwin-network
+    labels:
+      - "darwin.chaos.target=true"
+      - "darwin.service.type=inventory"
+
+  notification-service:
+    build:
+      context: ./notification-service
+      dockerfile: Dockerfile
+    container_name: darwin-notification-service
+    environment:
+      NOTIFICATION_FAILURE_RATE: 0.1
+    ports:
+      - "8005:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import httpx; httpx.get('http://localhost:8000/health')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - darwin-network
+    labels:
+      - "darwin.chaos.target=true"
+      - "darwin.service.type=notification"
+
+  # ============================================
+  # MONITORING STACK
+  # ============================================
+  
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: darwin-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    networks:
+      - darwin-network
+
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: darwin-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: darwin
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - darwin-network
+
+networks:
+  darwin-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  neo4j_data:
+  prometheus_data:
+  grafana_data:
