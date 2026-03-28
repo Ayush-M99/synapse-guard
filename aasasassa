@@ -1,0 +1,723 @@
+[1mdiff --git a/darwin-microservices/.env b/darwin-microservices/.env[m
+[1mnew file mode 100644[m
+[1mindex 0000000..d16be6d[m
+[1m--- /dev/null[m
+[1m+++ b/darwin-microservices/.env[m
+[36m@@ -0,0 +1 @@[m
+[32m+[m[32mGEMINI_API_KEY=AIzaSyA7MeMzzE5jMFjmXDua1GEqONJti9Wfs_Q[m
+[1mdiff --git a/darwin-microservices/README.md b/darwin-microservices/README.md[m
+[1mnew file mode 100644[m
+[1mindex 0000000..68d1353[m
+[1m--- /dev/null[m
+[1m+++ b/darwin-microservices/README.md[m
+[36m@@ -0,0 +1,290 @@[m
+[32m+[m[32m# Darwin Chaos Platform - Target Microservices[m
+[32m+[m
+[32m+[m[32mProduction-ready microservices designed as chaos engineering targets for the Darwin Chaos Platform. These services simulate a realistic e-commerce system with intentional failure injection points.[m
+[32m+[m
+[32m+[m[32m## Architecture[m
+[32m+[m
+[32m+[m[32m```[m
+[32m+[m[32m                    ┌─────────────────────────────────────────────────────────┐[m
+[32m+[m[32m                    │                     API Gateway                          │[m
+[32m+[m[32m                    │          (Rate Limiting, Circuit Breaker)                │[m
+[32m+[m[32m                    └─────────────────────┬───────────────────────────────────┘[m
+[32m+[m[32m                                          │[m
+[32m+[m[32m        ┌─────────────┬─────────────┬─────┴─────┬─────────────┬─────────────┐[m
+[32m+[m[32m        │             │             │           │             │             │[m
+[32m+[m[32m   ┌────▼────┐  ┌─────▼─────┐  ┌────▼────┐  ┌───▼───┐  ┌──────▼──────┐[m
+[32m+[m[32m   │  Auth   │  │   Order   │  │ Payment │  │Inventory│ │ Notification │[m
+[32m+[m[32m   │ Service │  │  Service  │  │ Service │  │ Service │ │   Service    │[m
+[32m+[m[32m   └────┬────┘  └─────┬─────┘  └────┬────┘  └───┬───┘  └──────┬──────┘[m
+[32m+[m[32m        │             │             │           │             │[m
+[32m+[m[32m        └─────────────┴─────────────┴───────────┴─────────────┘[m
+[32m+[m[32m                                    │[m
+[32m+[m[32m              ┌─────────────────────┼─────────────────────┐[m
+[32m+[m[32m              │                     │                     │[m
+[32m+[m[32m         ┌────▼────┐           ┌────▼────┐           ┌────▼────┐[m
+[32m+[m[32m         │PostgreSQL│           │  Redis  │           │  NATS   │[m
+[32m+[m[32m         │   DNA    │           │ T-Cell  │           │ Neural  │[m
+[32m+[m[32m         │  Store   │           │ Memory  │           │   Bus   │[m
+[32m+[m[32m         └─────────┘           └─────────┘           └─────────┘[m
+[32m+[m[32m```[m
+[32m+[m
+[32m+[m[32m## Services[m
+[32m+[m
+[32m+[m[32m### Auth Service (Port 8001)[m
+[32m+[m[32m- JWT-based authentication[m
+[32m+[m[32m- User registration and login[m
+[32m+[m[32m- Token verification[m
+[32m+[m[32m- Session management[m
+[32m+[m
+[32m+[m[32m**Endpoints:**[m
+[32m+[m[32m- `POST /signup` - Register new user[m
+[32m+[m[32m- `POST /login` - Authenticate user[m
+[32m+[m[32m- `POST /verify` - Verify JWT token[m
+[32m+[m[32m- `GET /me` - Get current user[m
+[32m+[m[32m- `POST /logout` - Invalidate session[m
+[32m+[m
+[32m+[m[32m### API Gateway (Port 8000)[m
+[32m+[m[32m- Central routing for all services[m
+[32m+[m[32m- Rate limiting (configurable)[m
+[32m+[m[32m- Circuit breaker per service[m
+[32m+[m[32m- Request/response metrics[m
+[32m+[m
+[32m+[m[32m**Endpoints:**[m
+[32m+[m[32m- `GET /api/services` - List service status[m
+[32m+[m[32m- `/api/auth/*` - Proxy to auth service[m
+[32m+[m[32m- `/api/orders/*` - Proxy to order service[m
+[32m+[m[32m- `/api/payments/*` - Proxy to payment service[m
+[32m+[m[32m- `/api/inventory/*` - Proxy to inventory service[m
+[32m+[m[32m- `/api/notifications/*` - Proxy to notification service[m
+[32m+[m
+[32m+[m[32m### Order Service (Port 8002)[m
+[32m+[m[32m- Order creation and management[m
+[32m+[m[32m- Orchestrates payment, inventory, notification[m
+[32m+[m[32m- PostgreSQL-backed persistence[m
+[32m+[m
+[32m+[m[32m**Endpoints:**[m
+[32m+[m[32m- `POST /orders` - Create order[m
+[32m+[m[32m- `GET /orders` - List orders[m
+[32m+[m[32m- `GET /orders/{id}` - Get order details[m
+[32m+[m[32m- `PUT /orders/{id}/cancel` - Cancel order[m
+[32m+[m
+[32m+[m[32m### Payment Service (Port 8003)[m
+[32m+[m[32m- Simulated payment processing[m
+[32m+[m[32m- Configurable failure rate[m
+[32m+[m[32m- Transaction history[m
+[32m+[m
+[32m+[m[32m**Endpoints:**[m
+[32m+[m[32m- `POST /pay` - Process payment[m
+[32m+[m[32m- `GET /payments/{id}` - Get payment status[m
+[32m+[m[32m- `GET /payments/order/{id}` - Get payments for order[m
+[32m+[m[32m- `POST /payments/{id}/refund` - Refund payment[m
+[32m+[m[32m- `GET /stats` - Payment statistics[m
+[32m+[m
+[32m+[m[32m### Inventory Service (Port 8004)[m
+[32m+[m[32m- Redis-backed stock management[m
+[32m+[m[32m- In-memory fallback[m
+[32m+[m[32m- Reservation system[m
+[32m+[m
+[32m+[m[32m**Endpoints:**[m
+[32m+[m[32m- `GET /stock` - List all inventory[m
+[32m+[m[32m- `GET /stock/{id}` - Get item stock[m
+[32m+[m[32m- `POST /reserve/{id}` - Reserve stock[m
+[32m+[m[32m- `POST /decrease/{id}` - Decrease stock[m
+[32m+[m[32m- `POST /increase/{id}` - Restock[m
+[32m+[m[32m- `GET /search?q=` - Search items[m
+[32m+[m[32m- `GET /low-stock` - Low stock alerts[m
+[32m+[m
+[32m+[m[32m### Notification Service (Port 8005)[m
+[32m+[m[32m- Async queue-based processing[m
+[32m+[m[32m- Multiple notification types[m
+[32m+[m[32m- Bulk sending support[m
+[32m+[m
+[32m+[m[32m**Endpoints:**[m
+[32m+[m[32m- `POST /notify` - Send notification (sync)[m
+[32m+[m[32m- `POST /notify/async` - Queue notification[m
+[32m+[m[32m- `POST /notify/bulk` - Bulk send[m
+[32m+[m[32m- `GET /notifications` - List sent notifications[m
+[32m+[m[32m- `GET /stats` - Notification statistics[m
+[32m+[m
+[32m+[m[32m## Quick Start[m
+[32m+[m
+[32m+[m[32m### Local Development (Docker Compose)[m
+[32m+[m
+[32m+[m[32m```bash[m
+[32m+[m[32m# Start all services[m
+[32m+[m[32m./build-deploy.sh local[m
+[32m+[m
+[32m+[m[32m# Or manually[m
+[32m+[m[32mdocker-compose up -d[m
+[32m+[m
+[32m+[m[32m# View logs[m
+[32m+[m[32mdocker-compose logs -f[m
+[32m+[m
+[32m+[m[32m# Stop[m
+[32m+[m[32mdocker-compose down -v[m
+[32m+[m[32m```[m
+[32m+[m
+[32m+[m[32m### Kubernetes Deployment[m
+[32m+[m
+[32m+[m[32m```bash[m
+[32m+[m[32m# Build images[m
+[32m+[m[32m./build-deploy.sh build[m
+[32m+[m
+[32m+[m[32m# Push to registry (optional)[m
+[32m+[m[32mREGISTRY=your-registry.io ./build-deploy.sh push[m
+[32m+[m
+[32m+[m[32m# Deploy to K8s[m
+[32m+[m[32m./build-deploy.sh deploy[m
+[32m+[m
+[32m+[m[32m# Check status[m
+[32m+[m[32mkubectl get pods -n darwin-microservices[m
+[32m+[m[32m```[m
+[32m+[m
+[32m+[m[32m## Configuration[m
+[32m+[m
+[32m+[m[32m### Environment Variables[m
+[32m+[m
+[32m+[m[32m| Variable | Default | Description |[m
+[32m+[m[32m|----------|---------|-------------|[m
+[32m+[m[32m| `DATABASE_URL` | `postgresql://chaos:chaospassword@postgres:5432/chaos_dna` | PostgreSQL connection |[m
+[32m+[m[32m| `REDIS_URL` | `redis://redis:6379` | Redis connection |[m
+[32m+[m[32m| `NATS_URL` | `nats://nats:4222` | NATS connection |[m
+[32m+[m[32m| `JWT_SECRET` | `darwin-chaos-jwt-secret` | JWT signing key |[m
+[32m+[m[32m| `PAYMENT_FAILURE_RATE` | `0.1` | Payment failure probability |[m
+[32m+[m[32m| `NOTIFICATION_FAILURE_RATE` | `0.1` | Notification failure probability |[m
+[32m+[m[32m| `RATE_LIMIT_REQUESTS` | `100` | Requests per window |[m
+[32m+[m[32m| `RATE_LIMIT_WINDOW` | `60` | Rate limit window (seconds) |[m
+[32m+[m
+[32m+[m[32m## Metrics[m
+[32m+[m
+[32m+[m[32mAll services expose Prometheus metrics at `/metrics`:[m
+[32m+[m
+[32m+[m[32m### Common Metrics[m
+[32m+[m[32m- `{service}_requests_total` - Request count by method/endpoint/status[m
+[32m+[m[32m- `{service}_request_latency_seconds` - Request latency histogram[m
+[32m+[m[32m- `{service}_cpu_usage_pct` - CPU usage percentage[m
+[32m+[m[32m- `{service}_memory_usage_pct` - Memory usage percentage[m
+[32m+[m
+[32m+[m[32m### Service-Specific Metrics[m
+[32m+[m
+[32m+[m[32m**Auth Service:**[m
+[32m+[m[32m- `auth_active_sessions` - Current active sessions[m
+[32m+[m[32m- `auth_login_attempts_total` - Login attempts by result[m
+[32m+[m
+[32m+[m[32m**API Gateway:**[m
+[32m+[m[32m- `gateway_active_connections` - Active client connections[m
+[32m+[m[32m- `gateway_circuit_breaker_state` - Circuit breaker state per service[m
+[32m+[m[32m- `gateway_upstream_errors_total` - Upstream service errors[m
+[32m+[m
+[32m+[m[32m**Order Service:**[m
+[32m+[m[32m- `orders_created_total` - Orders created by status[m
+[32m+[m[32m- `order_value_dollars` - Order value histogram[m
+[32m+[m[32m- `order_downstream_calls_total` - Downstream service calls[m
+[32m+[m
+[32m+[m[32m**Payment Service:**[m
+[32m+[m[32m- `payments_processed_total` - Payments by status/method[m
+[32m+[m[32m- `payment_amount_dollars` - Payment amount histogram[m
+[32m+[m[32m- `payment_processing_time_seconds` - Processing time[m
+[32m+[m
+[32m+[m[32m**Inventory Service:**[m
+[32m+[m[32m- `inventory_stock_operations_total` - Stock operations by type[m
+[32m+[m[32m- `inventory_cache_hits_total` - Redis cache hits[m
+[32m+[m[32m- `inventory_stock_level` - Current stock level per item[m
+[32m+[m
+[32m+[m[32m**Notification Service:**[m
+[32m+[m[32m- `notifications_sent_total` - Notifications by type/status[m
+[32m+[m[32m- `notification_queue_size` - Queue depth[m
+[32m+[m[32m- `notification_processing_time_seconds` - Processing time[m
+[32m+[m
+[32m+[m[32m## Nerve Ending Sidecar[m
+[32m+[m
+[32m+[m[32mEach service can be deployed with a nerve ending sidecar that:[m
+[32m+[m[32m- Monitors CPU, memory, error rate, latency[m
+[32m+[m[32m- Publishes alerts to NATS (`nerve.{service}.alert`)[m
+[32m+[m[32m- Recommends remediation actions[m
+[32m+[m[32m- Triggers reflex isolation[m
+[32m+[m
+[32m+[m[32m### Alert Types[m
+[32m+[m[32m- `cpu_high` - CPU usage exceeds threshold[m
+[32m+[m[32m- `memory_high` - Memory usage exceeds threshold[m
+[32m+[m[32m- `error_rate_high` - Error rate exceeds threshold[m
+[32m+[m[32m- `latency_high` - Average latency exceeds threshold[m
+[32m+[m[32m- `health_check_failed` - Health endpoint failures[m
+[32m+[m
+[32m+[m[32m### Recommended Actions[m
+[32m+[m[32m- `scale_horizontal` - Add more replicas[m
+[32m+[m[32m- `restart_pod` - Restart the problematic pod[m
+[32m+[m[32m- `isolate_pod` - Remove from load balancer[m
+[32m+[m[32m- `traffic_shift` - Redirect traffic to healthy pods[m
+[32m+[m[32m- `circuit_breaker` - Enable circuit breaker[m
+[32m+[m
+[32m+[m[32m## Chaos Engineering Integration[m
+[32m+[m
+[32m+[m[32mThese services are designed to be chaos targets:[m
+[32m+[m
+[32m+[m[32m1. **Failure Injection** - Configurable failure rates for payment and notification[m
+[32m+[m[32m2. **Latency Injection** - Simulated processing delays[m
+[32m+[m[32m3. **Resource Exhaustion** - Memory/CPU monitoring with thresholds[m
+[32m+[m[32m4. **Circuit Breaker** - Gateway implements circuit breaker pattern[m
+[32m+[m[32m5. **Health Degradation** - Services report detailed health status[m
+[32m+[m
+[32m+[m[32m### Testing Chaos Scenarios[m
+[32m+[m
+[32m+[m[32m```bash[m
+[32m+[m[32m# Increase payment failures[m
+[32m+[m[32mdocker-compose exec payment-service env PAYMENT_FAILURE_RATE=0.5[m
+[32m+[m
+[32m+[m[32m# Test circuit breaker (kill a service)[m
+[32m+[m[32mdocker-compose stop inventory-service[m
+[32m+[m
+[32m+[m[32m# Observe recovery[m
+[32m+[m[32mdocker-compose start inventory-service[m
+[32m+[m
+[32m+[m[32m# Monitor metrics[m
+[32m+[m[32mcurl http://localhost:8000/metrics[m
+[32m+[m[32m```[m
+[32m+[m
+[32m+[m[32m## Project Structure[m
+[32m+[m
+[32m+[m[32m```[m
+[32m+[m[32mdarwin-microservices/[m
+[32m+[m[32m├── auth-service/[m
+[32m+[m[32m│   ├── app.py[m
+[32m+[m[32m│   ├── Dockerfile[m
+[32m+[m[32m│   └── requirements.txt[m
+[32m+[m[32m├── api-gateway/[m
+[32m+[m[32m│   ├── app.py[m
+[32m+[m[32m│   ├── Dockerfile[m
+[32m+[m[32m│   └── requirements.txt[m
+[32m+[m[32m├── order-service/[m
+[32m+[m[32m│   ├── app.py[m
+[32m+[m[32m│   ├── Dockerfile[m
+[32m+[m[32m│   └── requirements.txt[m
+[32m+[m[32m├── payment-service/[m
+[32m+[m[32m│   ├── app.py[m
+[32m+[m[32m│   ├── Dockerfile[m
+[32m+[m[32m│   └── requirements.txt[m
+[32m+[m[32m├── inventory-service/[m
+[32m+[m[32m│   ├── app.py[m
+[32m+[m[32m│   ├── Dockerfile[m
+[32m+[m[32m│   └── requirements.txt[m
+[32m+[m[32m├── notification-service/[m
+[32m+[m[32m│   ├── app.py[m
+[32m+[m[32m│   ├── Dockerfile[m
+[32m+[m[32m│   └── requirements.txt[m
+[32m+[m[32m├── nerve-ending/[m
+[32m+[m[32m│   ├── nerve_ending.py[m
+[32m+[m[32m│   └── Dockerfile[m
+[32m+[m[32m├── k8s/[m
+[32m+[m[32m│   ├── k8s-manifests.yaml[m
+[32m+[m[32m│   └── nerve-ending-sidecar.yaml[m
+[32m+[m[32m├── monitoring/[m
+[32m+[m[32m│   └── prometheus.yml[m
+[32m+[m[32m├── docker-compose.yml[m
+[32m+[m[32m├── build-deploy.sh[m
+[32m+[m[32m└── README.md[m
+[32m+[m[32m```[m
+[32m+[m
+[32m+[m[32m## License[m
+[32m+[m
+[32m+[m[32mPart of the Darwin Chaos Platform - Autonomous Self-Healing Kubernetes System[m
+[1mdiff --git a/darwin-microservices/agents/__init__.py b/darwin-microservices/agents/__init__.py[m
+[1mnew file mode 100644[m
+[1mindex 0000000..41dc9e5[m
+[1m--- /dev/null[m
+[1m+++ b/darwin-microservices/agents/__init__.py[m
+[36m@@ -0,0 +1 @@[m
+[32m+[m[32m# DARWIN Autonomous Chaos Engineering Platform — Agent Package[m
+[1mdiff --git a/darwin-microservices/agents/__pycache__/__init__.cpython-313.pyc b/darwin-microservices/agents/__pycache__/__init__.cpython-313.pyc[m
+[1mnew file mode 100644[m
+[1mindex 0000000..f23f3c1[m
+Binary files /dev/null and b/darwin-microservices/agents/__pycache__/__init__.cpython-313.pyc differ
+[1mdiff --git a/darwin-microservices/agents/__pycache__/constants.cpython-313.pyc b/darwin-microservices/agents/__pycache__/constants.cpython-313.pyc[m
+[1mnew file mode 100644[m
+[1mindex 0000000..9881c8e[m
+Binary files /dev/null and b/darwin-microservices/agents/__pycache__/constants.cpython-313.pyc differ
+[1mdiff --git a/darwin-microservices/agents/__pycache__/honeypot_system.cpython-313.pyc b/darwin-microservices/agents/__pycache__/honeypot_system.cpython-313.pyc[m
+[1mnew file mode 100644[m
+[1mindex 0000000..476d19c[m
+Binary files /dev/null and b/darwin-microservices/agents/__pycache__/honeypot_system.cpython-313.pyc differ
+[1mdiff --git a/darwin-microservices/agents/__pycache__/istio_client.cpython-313.pyc b/darwin-microservices/agents/__pycache__/istio_client.cpython-313.pyc[m
+[1mnew file mode 100644[m
+[1mindex 0000000..a1bd628[m
+Binary files /dev/null and b/darwin-microservices/agents/__pycache__/istio_client.cpython-313.pyc differ
+[1mdiff --git a/darwin-microservices/agents/__pycache__/lstm_predictor.cpython-313.pyc b/darwin-microservices/agents/__pycache__/lstm_predictor.cpython-313.pyc[m
+[1mnew file mode 100644[m
+[1mindex 0000000..5e62c0e[m
+Binary files /dev/null and b/darwin-microservices/agents/__pycache__/lstm_predictor.cpython-313.pyc differ
+[1mdiff --git a/darwin-microservices/agents/__pycache__/ws_bridge.cpython-313.pyc b/darwin-microservices/agents/__pycache__/ws_bridge.cpython-313.pyc[m
+[1mnew file mode 100644[m
+[1mindex 0000000..45f6ff5[m
+Binary files /dev/null and b/darwin-microservices/agents/__pycache__/ws_bridge.cpython-313.pyc differ
+[1mdiff --git a/darwin-microservices/agents/antibody_agent.py b/darwin-microservices/agents/antibody_agent.py[m
+[1mnew file mode 100644[m
+[1mindex 0000000..988f27d[m
+[1m--- /dev/null[m
+[1m+++ b/darwin-microservices/agents/antibody_agent.py[m
+[36m@@ -0,0 +1,683 @@[m
+[32m+[m[32m"""[m
+[32m+[m[32mDARWIN Antibody Decision Engine (§8)[m
+[32m+[m
+[32m+[m[32mThe central nervous system. Connects ML pipeline output to K8s recovery actions.[m
+[32m+[m
+[32m+[m[32m4 Input States:[m
+[32m+[m[32m    KNOWN       RF >= 0.85            execute playbook immediately[m
+[32m+[m[32m    PROBABLE    RF 0.60 - 0.85        execute playbook + partial honeypot in parallel[m
+[32m+[m[32m    UNKNOWN     RF < 0.60             full honeypot path (10s observation, crystallize)[m
+[32m+[m[32m    PREDICTED   LSTM fires prediction preemptive action before IF even triggers[m
+[32m+[m
+[32m+[m[32mFeatures:[m
+[32m+[m[32m    - Priority queue (min-heap) — OS scheduling analogy[m
+[32m+[m[32m    - Semaphore system — 3 global slots + per-service locks[m
+[32m+[m[32m    - Conflict resolution — preempt / merge / queue[m
+[32m+[m[32m    - Redis T-cell memory check BEFORE Neo4j traversal[m
+[32m+[m[32m    - DNA write to PostgreSQL after every recovery[m
+[32m+[m[32m    - Neo4j Strand avg_recovery_time update[m
+[32m+[m[32m"""[m
+[32m+[m
+[32m+[m[32mimport os[m
+[32m+[m[32mimport time[m
+[32m+[m[32mimport json[m
+[32m+[m[32mimport asyncio[m
+[32m+[m[32mimport heapq[m
+[32m+[m[32mimport logging[m
+[32m+[m[32mfrom dataclasses import dataclass, field[m
+[32m+[m[32mfrom typing import Optional[m
+[32m+[m
+[32m+[m[32mimport nats[m
+[32m+[m[32mimport redis.asyncio as aioredis[m
+[32m+[m[32mimport asyncpg[m
+[32m+[m[32mfrom neo4j import GraphDatabase[m
+[32m+[m[32mfrom kubernetes import client, config[m
+[32m+[m
+[32m+[m[32mfrom constants import ([m
+[32m+[m[32m    NATSSubjects, BrainEvents, AttackState, MLConfig,[m
+[32m+[m[32m    ServiceConfig, DBConfig,[m
+[32m+[m[32m)[m
+[32m+[m[32mfrom honeypot_system import HoneypotSystem[m
+[32m+[m
+[32m+[m[32mlogging.basicConfig(level=logging.INFO, format="[💉 ANTIBODY] %(message)s")[m
+[32m+[m[32mlog = logging.getLogger("antibody")[m
+[32m+[m
+[32m+[m[32mNATS_URL = os.getenv("NATS_URL", DBConfig.NATS_URL)[m
+[32m+[m[32mREDIS_URL = os.getenv("REDIS_URL", DBConfig.REDIS_URL)[m
+[32m+[m[32mPG_URL = os.getenv("PG_URL", DBConfig.PG_URL)[m
+[32m+[m[32mNEO4J_URI = os.getenv("NEO4J_URI", DBConfig.NEO4J_URI)[m
+[32m+[m
+[32m+[m
+[32m+[m[32m# ═══════════════════════════════════════════════════════════════[m
+[32m+[m[32m# RECOVERY TASK — Priority Queue Item (§8)[m
+[32m+[m[32m# ═══════════════════════════════════════════════════════════════[m
+[32m+[m
+[32m+[m[32m@dataclass(order=True)[m
+[32m+[m[32mclass RecoveryTask:[m
+[32m+[m[32m    """Min-heap priority queue item. Lower priority number = runs first.[m
+[32m+[m[32m    OS analogy: priority queue like a scheduler."""[m
+[32m+[m[32m    priority:     int[m
+[32m+[m[32m    service:      str = field(compare=False)[m
+[32m+[m[32m    playbook_id:  str = field(compare=False)[m
+[32m+[m[32m    actions:      list = field(compare=False, default_factory=list)[m
+[32m+[m[32m    attack_state: str = field(compare=False, default=AttackState.KNOWN)[m
+[32m+[m[32m    strand_id:    Optional[str] = field(compare=False, default=None)[m
+[32m+[m[32m    attack_family: str = field(compare=False, default="unknown")[m
+[32m+[m[32m    rf_confidence: float = field(compare=False, default=0.0)[m
+[32m+[m[32m    created_at:   float = field(compare=False, default_factory=time.time)[m
+[32m+[m
+[32m+[m
+[32m+[m[32m# ═══════════════════════════════════════════════════════════════[m
+[32m+[m[32m# ANTIBODY DECISION ENGINE[m
+[32m+[m[32m# ═══════════════════════════════════════════════════════════════[m
+[32m+[m
+[32m+[m[32mclass AntibodyEngine:[m
+[32m+[m[32m    """The central nervous system of DARWIN.[m
+[32m+[m
+[32m+[m[32m    Single intake method: everything enters through NATS subscriber on nerve.{service}.alert.[m
+[32m+[m[32m    Signal type field routes to the right state."""[m
+[32m+[m
+[32m+[m[32m    def __init__(self):[m
+[32m+[m[32m        # Connections[m
+[32m+[m[32m        self.nc: Optional[nats.NATS] = None[m
+[32m+[m[32m        self.redis: Optional[aioredis.Redis] = None[m
+[32m+[m[32m        self.pg_pool: Optional[asyncpg.Pool] = None[m
+[32m+[m[32m        self.neo4j_driver = None[m
+[32m+[m[32m        self.k8s_v1: Optional[client.CoreV1Api] = None[m
+[32m+[m[32m        self.k8s_apps_v1: Optional[client.AppsV1Api] = None[m
+[32m+[m
+[32m+[m[32m        # Semaphore System — Two Levels (§8)[m
+[32m+[m[32m        # Global slot limiter: max 3 concurrent recoveries across entire system[m
+[32m+[m[32m        self.recovery_slots = asyncio.Semaphore(3)[m
+[32m+[m[32m        # Per-service lock: prevents two recoveries on same service simultaneously[m
+[32m+[m[32m        self.service_locks: dict[str, asyncio.Semaphore] = {}[m
+[32m+[m
+[32m+[m[32m        # Priority Queue (min-heap)[m
+[32m+[m[32m        self.task_queue: list[RecoveryTask] = [][m
+[32m+[m[32m        self.active_recoveries: dict[str, RecoveryTask] = {}[m
+[32m+[m
+[32m+[m[32m        # Honeypot system[m
+[32m+[m[32m        self.honeypot = HoneypotSystem()[m
+[32m+[m
+[32m+[m[32m        # Generation tracking[m
+[32m+[m[32m        self.virus_gen = 1[m
+[32m+[m[32m        self.antibody_gen = 1[m
+[32m+[m[32m        self.total_recoveries = 0[m
+[32m+[m[32m        self.total_recovery_time_ms = 0.0[m
+[32m+[m
+[32m+[m[32m        # K8s client[m
+[32m+[m[32m        try:[m
+[32m+[m[32m            config.load_incluster_config()[m
+[32m+[m[32m        except config.ConfigException:[m
+[32m+[m[32m            try:[m
+[32m+[m[32m                config.load_kube_config()[m
+[32m+[m[32m            except config.ConfigException:[m
+[32m+[m[32m                log.warning("K8s config not found — recovery actions will be simulated")[m
+[32m+[m[32m        try:[m
+[32m+[m[32m            self.k8s_v1 = client.CoreV1Api()[m
+[32m+[m[32m            self.k8s_apps_v1 = client.AppsV1Api()[m
+[32m+[m[32m        except Exception:[m
+[32m+[m[32m            pass[m
+[32m+[m
+[32m+[m[32m    async def connect(self):[m
+[32m+[m[32m        """Connect to all infrastructure."""[m
+[32m+[m[32m        self.nc = await nats.connect(NATS_URL)[m
+[32m+[m[32m        self.redis = aioredis.from_url(REDIS_URL, decode_responses=True)[m
+[32m+[m[32m        self.pg_pool = await asyncpg.create_pool(PG_URL)[m
+[32m+[m[32m        try:[m
+[32m+[m[32m            self.neo4j_driver = GraphDatabase.driver([m
+[32m+[m[32m                NEO4J_URI, auth=(DBConfig.NEO4J_USER, DBConfig.NEO4J_PASS)[m
+[32m+[m[32m            )[m
+[32m+[m[32m        except Exception as e:[m
+[32m+[m[32m            log.warning(f"Neo4j connection failed: {e}")[m
+[32m+[m
+[32m+[m[32m        # Initialize DNA schema[m
+[32m+[m[32m        async with self.pg_pool.acquire() as conn:[m
+[32m+[m[32m            await conn.execute("""[m
+[32m+[m[32m                CREATE TABLE IF NOT EXISTS dna_log ([m
+[32m+[m[32m                    id SERIAL PRIMARY KEY,[m
+[32m+[m[32m                    virus_gen INTEGER,[m
+[32m+[m[32m                    antibody_gen INTEGER,[m
+[32m+[m[32m                    strand_id VARCHAR(100),[m
+[32m+[m[32m                    service VARCHAR(100),[m
+[32m+[m[32m                    playbook_id VARCHAR(100),[m
+[32m+[m[32m                    recovery_time_ms FLOAT,[m
+[32m+[m[32m                    attack_state VARCHAR(20),[m
+[32m+[m[32m                    success BOOLEAN,[m
+[32m+[m[32m                    timestamp TIMESTAMP DEFAULT NOW()[m
+[32m+[m[32m                )[m
+[32m+[m[32m            """)[m
+[32m+[m
+[32m+[m[32m        # Wire NATS subscriptions[m
+[32m+[m[32m        await self.nc.subscribe("nerve.*.alert", cb=self._on_alert)[m
+[32m+[m[32m        await self.nc.subscribe(NATSSubjects.LSTM_PREDICTION, cb=self._on_prediction)[m
+[32m+[m[32m        await self.nc.subscribe(NATSSubjects.HONEYPOT_CRYSTALLIZED, cb=self._on_honeypot_crystallized)[m
+[32m+[m[32m        await self.nc.subscribe(NATSSubjects.IMMUNITY_WRITE, cb=self._on_immunity_write)[m
+[32m+[m
+[32m+[m[32m        # Connect honeypot system[m
+[32m+[m[32m        await self.honeypot.connect(self.nc)[m
+[32m+[m
+[32m+[m[32m        log.info("═" * 50)[m
+[32m+[m[32m        log.info("  ANTIBODY DECISION ENGINE ONLINE")[m
+[32m+[m[32m        log.info(f"  Global slots: 3 | Services: {len(ServiceConfig.SERVICE_NAMES)}")[m
+[32m+[m[32m        log.info("═" * 50)[m
+[32m+[m
+[32m+[m[32m    def _get_service_lock(self, service: str) -> asyncio.Semaphore:[m
+[32m+[m[32m        """Lazily create per-service lock."""[m
+[32m+[m[32m        if service not in self.service_locks:[m
+[32m+[m[32m            self.service_locks[service] = asyncio.Semaphore(1)[m
+[32m+[m[32m        return self.service_locks[service][m
+[32m+[m
+[32m+[m[32m    # ───────────────────────────────────────────────────────────[m
+[32m+[m[32m    # REDIS T-CELL MEMORY (§8 — check BEFORE Neo4j)[m
+[32m+[m[32m    # ───────────────────────────────────────────────────────────[m
+[32m+[m
+[32m+[m[32m    async def _check_tcell_memory(self, strand_id: str) -> Optional[dict]:[m
+[32m+[m[32m        """O(1) immunity check. Returns playbook if cached."""[m
+[32m+[m[32m        try:[m
+[32m+[m[32m            cached = await self.redis.get(f"immunity:{strand_id}")[m
+[32m+[m[32m            if cached:[m
+[32m+[m[32m                log.info(f"⚡ T-CELL HIT: {strand_id} — reflex recovery!")[m
+[32m+[m[32m                return json.loads(cached)[m
+[32m+[m[32m        except Exception as e:[m
+[32m+[m[32m            log.warning(f"Redis error: {e}")[m
+[32m+[m[32m        return None[m
+[32m+[m
+[32m+[m[32m    async def _store_tcell_memory(self, strand_id: str, playbook: dict):[m
+[32m+[m[32m        """Store learned antibody in T-cell memory (24h TTL)."""[m
+[32m+[m[32m        try:[m
+[32m+[m[32m            await self.redis.set([m
+[32m+[m[32m                f"immunity:{strand_id}",[m
+[32m+[m[32m                json.dumps(playbook),[m
+[32m+[m[32m                ex=86400,  # 24 hours[m
+[32m+[m[32m            )[m
+[32m+[m[32m            log.info(f"🧬 T-cell memory stored: {strand_id}")[m
+[32m+[m[32m        except Exception as e:[m
+[32m+[m[32m            log.warning(f"Redis write error: {e}")[m
+[32m+[m
+[32m+[m[32m    # ───────────────────────────────────────────────────────────[m
+[32m+[m[32m    # NEO4J BRAIN GRAPH QUERIES (§6)[m
+[32m+[m[32m    # ───────────────────────────────────────────────────────────[m
+[32m+[m
+[32m+[m[32m    def _query_recovery(self, family_label: str) -> Optional[dict]:[m
+[32m+[m[32m        """Query 1 — Fast lookup (RF confident). Returns recovery playbook."""[m
+[32m+[m[32m        if not self.neo4j_driver:[m
+[32m+[m[32m            return None[m
+[32m+[m[32m        try:[m
+[32m+[m[32m            with self.neo4j_driver.session() as session:[m
+[32m+[m[32m                result = session.run("""[m
+[32m+[m[32m                    MATCH (sig:Signature {rf_label: $label})[m
+[32m+[m[32m                        -[:TRIGGERS]->(rec:Recovery)[m
+[32m+[m[32m                    RETURN rec.id as id, rec.actions as actions,[m
+[32m+[m[32m                           rec.priority_order as priority_order,[m
+[32m+[m[32m                           rec.estimated_time_ms as est_time,[m
+[32m+[m[32m                           rec.conflicts_with as conflicts_with[m
+[32m+[m[32m                    ORDER BY rec.estimated_time_ms ASC[m
+[32m+[m[32m                    LIMIT 1[m
+[32m+[m[32m                """, label=family_label)[m
+[32m+[m[32m                record = result.single()[m
+[32m+[m[32m                if record:[m
+[32m+[m[32m                    return {[m
+[32m+[m[32m                        "id": record["id"],[m
+[32m+[m[32m                        "actions": record["actions"],[m
+[32m+[m[32m                        "priority_order": record["priority_order"],[m
+[32m+[m[32m                        "estimated_time_ms": record["est_time"],[m
+[32m+[m[32m                        "conflicts_with": record.get("conflicts_with"),[m
+[32m+[m[32m                    }[m
+[32m+[m[32m        except Exception as e:[m
+[32m+[m[32m            log.warning(f"Neo4j query error: {e}")[m
+[32m+[m[32m        return None[m
+[32m+[m
+[32m+[m[32m    def _query_blast_radius(self, service: str) -> list[dict]:[m
+[32m+[m[32m        """Query 2 — Blast radius traversal."""[m
+[32m+[m[32m        if not self.neo4j_driver:[m
+[32m+[m[32m            return [{"name": service, "criticality": "high", "recovery_priority": 2}][m
+[32m+[m[32m        try:[m
+[32m+[m[32m            with self.neo4j_driver.session() as session:[m
+[32m+[m[32m                result = session.run("""[m
+[32m+[m[32m                    MATCH (s:Service {name: $service})[m
+[32m+[m[32m                        -[:DEPENDS_ON*1..3]->(downstream:Service)[m
+[32m+[m[32m                    RETURN downstream.name as name,[m
+[32m+[m[32m                           downstream.criticality as criticality,[m
+[32m+[m[32m                           downstream.recovery_priority as recovery_priority[m
+[32m+[m[32m                    ORDER BY downstream.recovery_priority ASC[m
+[32m+[m[32m                """, service=service)[m
+[32m+[m[32m                return [dict(record) for record in result][m
+[32m+[m[32m        except Exception:[m
+[32m+[m[32m            return [][m
+[32m+[m
+[32m+[m[32m    # ───────────────────────────────────────────────────────────[m
+[32m+[m[32m    # NATS HANDLERS — Single Intake (§8)[m
+[32m+[m[32m    # ───────────────────────────────────────────────────────────[m
+[32m+[m
+[32m+[m[32m    async def _on_alert(self, msg):[m
+[32m+[m[32m        """Main alert handler. Everything enters through nerve.{service}.alert.[m
+[32m+[m[32m        Signal type field routes to the right state."""[m
+[32m+[m[32m        try:[m
+[32m+[m[32m            data = json.loads(msg.data.decode())[m
+[32m+[m[32m        except Exception:[m
+[32m+[m[32m            return[m
+[32m+[m
+[32m+[m[32m        service = data.get("service", "unknown")[m
+[32m+[m[32m        strand_id = data.get("strand_id", data.get("attack_family", "unknown"))[m
+[32m+[m[32m        attack_family = data.get("attack_family", "unknown")[m
+[32m+[m[32m        rf_confidence = data.get("rf_confidence", 0.5)[m
+[32m+[m[32m        attack_state = data.get("attack_state", AttackState.KNOWN)[m
+[32m+[m
+[32m+[m[32m        # Determine state from RF confidence if not provided[m
+[32m+[m[32m        if rf_confidence >= MLConfig.RF_KNOWN_THRESHOLD:[m
+[32m+[m[32m            attack_state = AttackState.KNOWN[m
+[32m+[m[32m        elif rf_confidence >= MLConfig.RF_PROBABLE_THRESHOLD:[m
+[32m+[m[32m            attack_state = AttackState.PROBABLE[m
+[32m+[m[32m        else:[m
+[32m+[m[32m            attack_state = AttackState.UNKNOWN[m
+[32m+[m
+[32m+[m[32m        log.info(f"\n{'─'*40}")[m
+[32m+[m[32m        log.info(f"ALERT: {service} | {attack_family} | conf={rf_confidence:.2f} | state={attack_state}")[m
+[32m+[m
+[32m+[m[32m        # Step 1: Check T-cell memory (Redis) FIRST[m
+[32m+[m[32m        tcell_playbook = await self._check_tcell_memory(strand_id)[m
+[32m+[m[32m        if tcell_playbook:[m
+[32m+[m[32m            # REFLEX RECOVERY — bypass everything[m
+[32m+[m[32m            await self._publish_brain_event(BrainEvents.TCELL_HIT, service=service,[m
+[32m+[m[32m                                            strand_id=strand_id)[m
+[32m+[m[32m            task = RecoveryTask([m
+[32m+[m[32m                priority=ServiceConfig.get_priority(service),[m
+[32m+[m[32m                service=service,[m
+[32m+[m[32m                playbook_id=tcell_playbook.get("id", "tcell_cached"),[m
+[32m+[m[32m                actions=tcell_playbook.get("actions", ["restart_pod"]),[m
+[32m+[m[32m                attack_state=AttackState.KNOWN,[m
+[32m+[m[32m                strand_id=strand_id,[m
+[32m+[m[32m                attack_family=attack_family,[m
+[32m+[m[32m                rf_confidence=1.0,[m
+[32m+[m[32m            )[m
+[32m+[m[32m            await self._enqueue_and_execute(task)[m
+[32m+[m[32m            return[m
+[32m+[m
+[32m+[m[32m        # Step 2: Route based on attack state[m
+[32m+[m[32m        if attack_state == AttackState.KNOWN:[m
+[32m+[m[32m            await self._handle_known(service, attack_family, strand_id, rf_confidence)[m
+[32m+[m[32m        elif attack_state == AttackState.PROBABLE:[m
+[32m+[m[32m            await self._handle_probable(service, attack_family, strand_id, rf_confidence)[m
+[32m+[m[32m        elif attack_state == AttackState.UNKNOWN:[m
+[32m+[m[32m            await self._handle_unknown(service, attack_family, strand_id, rf_confidence)[m
+[32m+[m
+[32m+[m[32m    async def _on_prediction(self, msg):[m
+[32m+[m[32m        """LSTM prediction handler — Gen 3 demo moment (§8)."""[m
+[32m+[m[32m        try:[m
+[32m+[m[32m            signal = json.loads(msg.data.decode())[m
+[32m+[m[32m        except Exception:[m
+[32m+[m[32m            return[m
+[32m+[m
+[32m+[m[32m        predicted_family = signal.get("predicted_family", "pod_crash")[m
+[32m+[m[32m        predicted_service = signal.get("predicted_service", "payment-service")[m
+[32m+[m[32m        confidence = signal.get("lstm_confidence", 0.0)[m
+[32m+[m
+[32m+[m[32m        if confidence < MLConfig.LSTM_CONFIDENCE_THRESHOLD:[m
+[32m+[m[32m            return[m
+[32m+[m
+[32m+[m[32m        log.info(f"\n🔮 LSTM PREDICTION: {predicted_family} → {predicted_service} [{confidence:.0%}]")[m
+[32m+[m
+[32m+[m[32m        # Preemptive action[m
+[32m+[m[32m        blast_radius = self._query_blast_radius(predicted_service)[m
+[32m+[m
+[32m+[m[32m        preemptive_actions = [][m
+[32m+[m[32m        for svc_info in blast_radius:[m
+[32m+[m[32m            svc_name = svc_info.get("name", predicted_service)[m
+[32m+[m[32m            if svc_info.get("criticality") == "critical":[m
+[32m+[m[32m                preemptive_actions.append(self._prescale_service(svc_name, replicas=3))[m
+[32m+[m[32m            if predicted_family == "network":[m
+[32m+[m[32m                preemptive_actions.append(self._prep_failover_route(svc_name))[m
+[32m+[m[32m            if predicted_family == "resource":[m
+[32m+[m[32m                preemptive_actions.append(self._tighten_resource_limits(svc_name))[m
+[32m+[m
+[32m+[m[32m        # Also pre-scale the predicted target[m
+[32m+[m[32m        preemptive_actions.append(self._prescale_service(predicted_service, replicas=3))[m
+[32m+[m
+[32m+[m[32m        await asyncio.gather(*preemptive_actions, return_exceptions=True)[m
+[32m+[m
+[32m+[m[32m        await self._publish_brain_event([m
+[32m+[m[32m            BrainEvents.PREEMPTIVE_ACTION,[m
+[32m+[m[32m            service=predicted_service,[m
+[32m+[m[32m            family=predicted_family,[m
+[32m+[m[32m            confidence=confidence,[m
+[32m+[m[32m            services=[s.get("name") for s in blast_radius],[m
+[32m+[m[32m        )[m
+[32m+[m
+[32m+[m[32m        log.info(f"🛡️ Preemptive actions complete for {predicted_service}")[m
+[32m+[m
+[32m+[m[32m    async def _on_honeypot_crystallized(self, msg):[m
+[32m+[m[32m        """Handle honeypot crystallization complete."""[m
+[32m+[m[32m        data = json.loads(msg.data.decode())[m
+[32m+[m[32m        strand_id = data.get("strand_id", "unknown")[m
+[32m+[m[32m        playbook = data.get("playbook", {"actions": ["restart_pod"]})[m
+[32m+[m[32m        await self._store_tcell_memory(strand_id, playbook)[m
+[32m+[m
+[32m+[m[32m    async def _on_immunity_write(self, msg):[m
+[32m+[m[32m        """Cache new immunity in Redis from other agents."""[m
+[32m+[m[32m        data = json.loads(msg.data.decode())[m
+[32m+[m[32m        strand_id = data.get("strand_id")[m
+[32m+[m[32m        playbook = data.get("playbook", {})[m
+[32m+[m[32m        if strand_id and playbook:[m
+[32m+[m[32m            await self._store_tcell_memory(strand_id, playbook)[m
+[32m+[m
+[32m+[m[32m    # ───────────────────────────────────────────────────────────[m
+[32m+[m[32m    # STATE HANDLERS (§8 — 4 states)[m
+[32m+[m[32m    # ───────────────────────────────────────────────────────────[m
+[32m+[m
+[32m+[m[32m    async def _handle_known(self, service: str, family: str,[m
+[32m+[m[32m                             strand_id: str, confidence: float):[m
+[32m+[m[32m        """KNOWN (RF >= 0.85): Execute playbook immediately."""[m
+[32m+[m[32m        log.info(f"  State: KNOWN — executing playbook immediately")[m
+[32m+[m
+[32m+[m[32m        playbook = self._query_recovery(family)[m
+[32m+[m[32m        if not playbook:[m
+[32m+[m[32m            playbook = {"id": f"rec_{family}_default", "actions": ["restart_pod", "scale_replicas"]}[m
+[32m+[m
+[32m+[m[32m        task = RecoveryTask([m
+[32m+[m[32m            priority=ServiceConfig.get_priority(service),[m
+[32m+[m[32m            service=service,[m
+[32m+[m[32m            playbook_id=playbook.get("id", "unknown"),[m
+[32m+[m[32m            actions=playbook.get("actions", ["restart_pod"]),[m
+[32m+[m[32m            attack_state=AttackState.KNOWN,[m
+[32m+
